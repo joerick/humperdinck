@@ -109,4 +109,37 @@ export default class Branch {
 
         return new Commit(newCommitResponse.data as any, this.repo, this.octokit);
     }
+
+    async release(newVersion: string, changelog: string, commit: Commit) {
+        // update this branch to point at the commit, tag with newVersion,
+        // and release with Github releases
+        const releaseResponse = await this.octokit.repos.createRelease({
+            owner: this.repo.ownerUsername,
+            repo: this.repo.name,
+            tag_name: newVersion,
+            target_commitish: commit.sha,
+            name: newVersion,
+            body: changelog,
+        })
+        const release = releaseResponse.data;
+
+        try {
+            await this.octokit.git.updateRef({
+                owner: this.repo.ownerUsername,
+                repo: this.repo.name,
+                ref: `heads/${this.name}`,
+                sha: commit.sha,
+            })
+        }
+        catch(error) {
+            await this.octokit.repos.deleteRelease({
+                owner: this.repo.ownerUsername,
+                repo: this.repo.name,
+                release_id: release.id,
+            })
+            throw error;
+        }
+
+        return release
+    }
 }
