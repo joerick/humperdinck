@@ -1,6 +1,6 @@
 import * as firebase from 'firebase/app';
 import Octokit from '@octokit/rest';
-import { Repo } from './Repo';
+import Repo from './Repo';
 
 interface UserDocument {
     githubUsername: string,
@@ -8,7 +8,7 @@ interface UserDocument {
     githubToken: string,
 }
 
-export class User {
+export default class User {
     octokit!: Octokit;
     userDocumentData!: UserDocument;
     userDocumentRef: firebase.firestore.DocumentReference;

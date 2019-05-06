@@ -1,6 +1,8 @@
 import Octokit from '@octokit/rest';
-import { Repo } from './Repo';
-import File from './File';
+import Repo from './Repo';
+import File, { RepoRootFile } from './File';
+import { cacheMethod } from '@/util-cache';
+
 
 export default class Commit {
     constructor (public githubObj: Octokit.ReposGetBranchResponseCommit, 
@@ -9,14 +11,5 @@ export default class Commit {
 
     get sha() { return this.githubObj.sha; }
     get treeSha() { return this.githubObj.commit.tree.sha; }
-
-    async files(root?: File): Promise<File[]> {
-        const response = await this.octokit.git.getTree({
-            owner: this.repo.ownerUsername,
-            repo: this.repo.name,
-            tree_sha: this.treeSha,
-            recursive: 1
-        })
-        return response.data.tree.map((gho: any) => new File(gho, this.repo, this.octokit));
-    }   
+    get root() { return new RepoRootFile(this, this.repo, this.octokit) }
 }

@@ -18,3 +18,18 @@ export const Base64 = {
         }).join(''));
     },
 }
+
+export async function asyncGeneratorToList<T>(generator: AsyncIterableIterator<T>) {
+    const result = [];
+    while (true) {
+        const {done, value} = await generator.next();
+        if (done) {
+            break;
+        }
+        result.push(value);
+    }
+    // for await(const el of generator) {
+    //     result.push(el);
+    // }
+    return result;
+}

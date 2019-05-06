@@ -1,4 +1,4 @@
-const VERSION_REGEX = /^(v?)(\d+\.\d+(?:\.\d+)?)(.*)/gi;
+const VERSION_REGEX = /^(v?)(\d+\.\d+(?:\.\d+)?)(.*)/i;
 
 export interface VersionParts {
     preamble: string,

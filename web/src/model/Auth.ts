@@ -1,5 +1,5 @@
 import firebaseApp, { authProvider } from "@/firebase";
-import { User } from './User';
+import User from './User';
 import { Mutex } from 'async-mutex';
 
 const auth = firebaseApp.auth();

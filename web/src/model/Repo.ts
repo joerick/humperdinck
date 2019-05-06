@@ -2,6 +2,7 @@ import * as GithubApi from './GithubApiTypes';
 import Octokit from '@octokit/rest';
 import firebaseApp from "@/firebase";
 import Branch from './Branch';
+import { asyncGeneratorToList } from '@/util';
 
 interface RepoSettings {
     // changelogPath?: string,
@@ -9,7 +10,7 @@ interface RepoSettings {
     filesContainingVersionNumbersToUpdate: string[],
 }
 
-export class Repo {
+export default class Repo {
     repoSettings!: RepoSettings;
     repoSettingsRef: firebase.firestore.DocumentReference;
 
@@ -47,5 +48,55 @@ export class Repo {
     }
     async defaultBranch() {
         return await this.branch(this.defaultBranchName);
+    }
+
+    async *tagsGenerator() {
+        let page = 0;
+
+        while (true) {
+            const tagsRequest = await this.octokit.repos.listTags({
+                owner: this.ownerUsername,
+                repo: this.name,
+                per_page: 100,
+                page,
+            })
+
+            for (const tag of tagsRequest.data) {
+                yield tag;
+            }
+
+            if (tagsRequest.data.length < 100) {
+                break;
+            }
+
+            page += 1;
+        }
+    }
+
+    async tags() {
+        return asyncGeneratorToList(this.tagsGenerator());
+    }
+
+    async *commitsGenerator(headSha: string) {
+        let page = 0;
+        while (true) {
+            const commitsRequest = await this.octokit.repos.listCommits({
+                owner: this.ownerUsername,
+                repo: this.name,
+                sha: headSha,
+                per_page: 100,
+                page,
+            });
+
+            for (const commit of commitsRequest.data) {
+                yield commit;
+            }
+
+            if (commitsRequest.data.length < 100) {
+                break;
+            }
+
+            page += 1;
+        }
     }
 }
