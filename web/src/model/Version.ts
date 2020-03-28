@@ -8,13 +8,11 @@ export interface VersionParts {
     postamble: string,
 }
 
-export class VersionParseError extends Error {};
-
 export default {
-    parse(str: string): VersionParts {
+    parse(str: string): VersionParts|null {
         const match = VERSION_REGEX.exec(str);
         if (!match) {
-            throw new VersionParseError();
+            return null
         }
 
         // Example: 'v3.2.1-beta' would parse into

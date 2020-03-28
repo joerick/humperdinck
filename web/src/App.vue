@@ -6,7 +6,7 @@
       <a @click="login" v-if="user === null">
         Login
       </a>
-      <a @click="logout" v-else>
+      <a @click="logout" v-else-if="user">
         Logout
       </a>
     </div>
@@ -21,11 +21,12 @@ export default {
   name: 'App',
   data() {
     return {
-      user: null,
+      user: undefined,
     }
   },
   beforeCreate() {
     Auth.addAuthStateListener(user => {
+      console.log({user})
       this.user = user
     })
   },

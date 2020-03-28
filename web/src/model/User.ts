@@ -1,5 +1,6 @@
 import * as firebase from 'firebase/app';
-import Octokit from '@octokit/rest';
+import 'firebase/functions';
+import {Octokit} from '@octokit/rest';
 import Repo from './Repo';
 
 interface UserDocument {
@@ -22,7 +23,7 @@ export default class User {
      * any other method on this object.
      */
     async init() {
-        await new Promise((resolve, reject) => {
+        const firstDocumentUpdate = new Promise((resolve, reject) => {
             this.userDocumentRef.onSnapshot((doc) => {
                 if (!doc.exists) { reject('user doesn\'t exist in firestore') };
 
@@ -32,6 +33,11 @@ export default class User {
                 resolve();
             });
         })
+        const updateUserAccessFunction = firebase.functions().httpsCallable('updateUserAccess')
+        const userAccessUpdate = updateUserAccessFunction({uid: this.uid});
+
+        await Promise.all([firstDocumentUpdate, userAccessUpdate]);
+
         this.octokit = new Octokit({
             auth: `token ${this.githubToken}`,
             userAgent: 'joerick/humperdinck',
@@ -47,8 +53,28 @@ export default class User {
             const result = await this.octokit.repos.list({per_page: 100});
             this._cachedGithubRepos = result.data.map((obj: any) => new Repo(obj, this.octokit));
             // run the `init`s in parallel
-            await Promise.all(this._cachedGithubRepos!.map(r => r.init()));
+            const successfulRepos: Repo[] = []
+            await Promise.all(this._cachedGithubRepos!.map(async repo => {
+                try {
+                    await repo.init()
+                    successfulRepos.push(repo);
+                } catch (error) {
+                    console.warn('failed to init project', repo, error)
+                }
+            }));
+            this._cachedGithubRepos = successfulRepos;
         }
         return this._cachedGithubRepos!;
+    }
+
+    async getRepo(owner: string, name: string) {
+        const repos = await this.githubRepos();
+        const repo = repos.find(r => (
+            r.ownerUsername === owner && r.name === name
+        ))
+        if (!repo) {
+            throw new Error('Repo not found.');
+        }
+        return repo;
     }
 }

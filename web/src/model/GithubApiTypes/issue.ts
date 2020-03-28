@@ -1,4 +1,3 @@
-import { IssueComment } from "./issue";
 import { Label } from "./label";
 import { Milestone } from "./milestone";
 import { Repository } from "./repository";

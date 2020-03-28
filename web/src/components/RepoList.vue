@@ -11,18 +11,24 @@
     </div>
   </div>
 </template>
-<script>
-export default {
+
+<script lang="ts">
+import Vue, { PropType } from 'vue';
+import { User, Repo } from '@/model';
+
+export default Vue.extend({
   name: 'RepoList',
-  props: ['user'],
+  props: {
+    user: Object as PropType<User>,
+  },
   data() {
     return {
-      repos: null,
+      repos: null as Repo[]|null,
       loading: false,
     }
   },
   methods: {
-    repoClick(repo) {
+    repoClick(repo: Repo) {
       repo.defaultBranch().then((branch) => {
         console.log('branch', branch.name);
         return branch.currentVersion();
@@ -45,5 +51,5 @@ export default {
       }
     }
   },
-}
+});
 </script>

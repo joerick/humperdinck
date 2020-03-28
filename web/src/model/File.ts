@@ -1,4 +1,4 @@
-import Octokit from '@octokit/rest';
+import {Octokit} from '@octokit/rest';
 import Repo from './Repo';
 import { Base64 } from '@/util';
 import { cacheMethod } from '@/util-cache';

@@ -1,8 +1,10 @@
-import Octokit, { ReposListTagsResponseItem } from '@octokit/rest';
-import Repo from './Repo';
-import Commit from './Commit';
-import Version from './Version';
 import { Base64 } from '@/util';
+import { cacheMethod } from '@/util-cache';
+import Commit from './Commit';
+import Repo from './Repo';
+import Version from './Version';
+import { Octokit } from '@octokit/rest';
+
 
 interface GithubApiRef {
     ref: string,
@@ -13,6 +15,11 @@ interface GithubApiRef {
         sha: string,
         url: string,
     }
+}
+
+interface VersionTag {
+    sha: string,
+    name: string,
 }
 
 export default class Branch {
@@ -28,7 +35,34 @@ export default class Branch {
         return this.githubObj.name;
     }
 
-    async currentVersion(): Promise<string> {
+    async refresh() {
+        const response = await this.octokit.repos.getBranch({
+            owner: this.repo.ownerUsername,
+            repo: this.repo.name,
+            branch: this.name,
+        })
+        this.githubObj = response.data
+    }
+
+
+    @cacheMethod({ttl: 60})
+    async commitsSinceLatestTag() {
+        const tags = await this.repo.tags();
+        const tagShas = tags.map(t => t.commit.sha);
+        const commits = [];
+
+        for await (const commit of this.repo.commitsGenerator({headSha: this.headCommit.sha})) {
+            commits.push(commit);
+
+            if (tagShas.includes(commit.sha)) {
+                break;
+            }
+        }
+        
+        return commits.map(c => new Commit(c, this.repo, this.octokit));
+    }
+
+    async currentVersion(): Promise<VersionTag> {
         // get all the tags
         let tags = await this.repo.tags();
 
@@ -44,31 +78,30 @@ export default class Branch {
         }
         
         const headSha = this.headCommit.sha;
-        let version = null;
 
         // find the latest commit that's tagged with a version number
-        for await (const commit of this.repo.commitsGenerator(headSha)) {
-            version = commitShaToVersionMap[commit.sha];
-            if (version) {
-                break;
+        for await (const commit of this.repo.commitsGenerator({headSha})) {
+            const versionName = commitShaToVersionMap[commit.sha];
+
+            if (versionName) {
+                return {
+                    name: versionName,
+                    sha: commit.sha,
+                }
             }
         }
 
-        if (version === null) {
-            throw new Error('Couldn\'t find a commit in this branch has a version');
-        }
-
-        return version
+        throw new Error('Couldn\'t find a commit in this branch has a version');
     }
 
     async draftReleaseCommit(newVersion: string, changelog: string): Promise<Commit> {
         const currentVersion = await this.currentVersion();
-        const filePaths = this.repo.repoSettings.filesContainingVersionNumbersToUpdate;
+        const filePaths = this.repo.repoSettings?.filesContainingVersionNumbersToUpdate ?? [];
         const files = await Promise.all(filePaths.map(path => this.headCommit.root.getFile(path)));
 
         const newFiles = await Promise.all(files.map(async f => {
             const oldContents = await f.contents();
-            const newContents = oldContents.replace(currentVersion, newVersion);
+            const newContents = oldContents.replace(currentVersion.name, newVersion);
 
             const newBlobResponse = await this.octokit.git.createBlob({
                 owner: this.repo.ownerUsername,
@@ -130,6 +163,7 @@ export default class Branch {
                 ref: `heads/${this.name}`,
                 sha: commit.sha,
             })
+            await this.refresh();
         }
         catch(error) {
             await this.octokit.repos.deleteRelease({

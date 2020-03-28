@@ -1,8 +1,9 @@
 import * as GithubApi from './GithubApiTypes';
-import Octokit from '@octokit/rest';
+import { Octokit } from '@octokit/rest';
 import firebaseApp from "@/firebase";
 import Branch from './Branch';
 import { asyncGeneratorToList } from '@/util';
+import { cacheMethod } from '@/util-cache';
 
 interface RepoSettings {
     // changelogPath?: string,
@@ -10,8 +11,12 @@ interface RepoSettings {
     filesContainingVersionNumbersToUpdate: string[],
 }
 
+function RepoSettingsDefault(): RepoSettings {
+    return {filesContainingVersionNumbersToUpdate: []}
+}
+
 export default class Repo {
-    repoSettings!: RepoSettings;
+    repoSettings: RepoSettings|null = null;
     repoSettingsRef: firebase.firestore.DocumentReference;
 
     constructor (public githubObj: GithubApi.Repository, readonly octokit: Octokit) {
@@ -21,17 +26,25 @@ export default class Repo {
     async init() {
         await new Promise((resolve, reject) => {
             this.repoSettingsRef.onSnapshot((doc) => {
-                if (!doc.exists) {
-                    this.repoSettings = {filesContainingVersionNumbersToUpdate: []};
-                } else {
+                if (doc.exists) {
                     this.repoSettings = (doc.data()! as any);
+                } else {
+                    this.repoSettings = null;
                 }
 
                 // continue init after the first value
                 // (only the first call to resolve() does anything.)
+                console.log('got repo obj', this.repoSettingsRef.path)
                 resolve();
-            }, reject);
+            }, (error) => {
+                console.error('failed to get repo object from firestore', this.repoSettingsRef.path, this.githubObj.id);
+                reject(error);
+            });
         })
+    }
+
+    get isEnabled() {
+        return this.repoSettings !== null;
     }
 
     get ownerUsername() { return this.githubObj.owner.login }
@@ -48,6 +61,15 @@ export default class Repo {
     }
     async defaultBranch() {
         return await this.branch(this.defaultBranchName);
+    }
+    @cacheMethod({ttl: 180})
+    async branchNames() {
+        const branchResponse = await this.octokit.repos.listBranches({
+            owner: this.ownerUsername,
+            repo: this.name,
+        })
+
+        return branchResponse.data.map(b => b.name);
     }
 
     async *tagsGenerator() {
@@ -73,11 +95,11 @@ export default class Repo {
         }
     }
 
-    async tags() {
+    async tags(): Promise<Octokit.ReposListTagsResponseItem[]> {
         return asyncGeneratorToList(this.tagsGenerator());
     }
 
-    async *commitsGenerator(headSha: string) {
+    async *commitsGenerator({headSha}: {headSha: string}) {
         let page = 0;
         while (true) {
             const commitsRequest = await this.octokit.repos.listCommits({
