@@ -23,7 +23,7 @@
     "@vue/cli-plugin-typescript": "^4.2.3",
     "@vue/cli-service": "^4.2.3",
     "jest": "^25.2.3",
-    "node-sass": "^4.13.1",
+    "node-sass": "^7.0.0",
     "sass-loader": "^8.0.2",
     "ts-jest": "^25.2.1",
     "typescript": "^3.8.3",
