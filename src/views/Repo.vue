@@ -1,31 +1,34 @@
 <template>
-  <div v-if="repo === null">
-    {{repoLoadingStatus}}
+  <div class="repo">
+    <RepoNavContainer :user="user">
+      <div v-if="repo === null">
+        {{repoLoadingStatus}}
+      </div>
+      <div v-else>
+        <h2>
+          <span v-html="octicons.repo.toSVG()"></span>
+          {{repo.ownerUsername}}/{{repo.name}}
+        </h2>
+        <p>
+          Current branch: {{repo.defaultBranchName}}
+        </p>
+
+        <p v-if="status == 'pending'">
+          Tests pending
+        </p>
+        <p v-if="status == 'failure'">
+          Tests failing
+        </p>
+        <p v-if="status == 'success'">
+          Tests passing
+        </p>
+
+        <p v-if="commits">
+          {{commits.length}} commits since latest tag.
+        </p>
+      </div>
+    </RepoNavContainer>
   </div>
-  <div v-else>
-    <h2>
-      <span v-html="octicons.repo.toSVG()"></span>
-      {{repo.ownerUsername}}/{{repo.name}}
-    </h2>
-    <p>
-      Current branch: {{repo.defaultBranchName}}
-    </p>
-
-    <p v-if="status == 'pending'">
-      Tests pending
-    </p>
-    <p v-if="status == 'failure'">
-      Tests failing
-    </p>
-    <p v-if="status == 'success'">
-      Tests passing
-    </p>
-
-    <p v-if="commits">
-      {{commits.length}} commits since latest tag.
-    </p>
-  </div>
-
 </template>
 
 <script lang="ts">
@@ -33,7 +36,7 @@ import octicons from 'octicons';
 import Vue, { PropType } from 'vue';
 import { Repo, User, Branch, Commit } from '../model';
 import { CommitStatus } from '@/model/Commit';
-
+import RepoNavContainer from "@/components/RepoNavContainer.vue";
 
 export default Vue.extend({
   name: 'Repo',
@@ -56,6 +59,12 @@ export default Vue.extend({
   },
   methods: {
     async loadRepo() {
+      this.repo = null;
+      this.branch = null;
+      this.commits = null;
+      this.latestVersion = null;
+      this.status = null;
+      
       if (this.user === undefined) {
         // don't know about the user yet. do nothing.
         return;
@@ -67,30 +76,22 @@ export default Vue.extend({
       }
       this.repoLoadingStatus = 'Loading...';
 
-      let repos;
+      let repo;
       try {
-        repos = await this.user.githubRepos()
+        repo = await this.user.getRepo(this.$route.params.owner, this.$route.params.repoName)
       }
       catch(error) {
         this.repoLoadingStatus = 'An error occurred. ' + error.toString()
         return;
       }
 
-      const repo = repos.find(r => (
-        r.ownerUsername === this.$route.params.owner
-        && r.name === this.$route.params.repo
-      ));
-
-      if (!repo) {
-        this.repoLoadingStatus = 'Repo not found';
-        return;
-      }
-
       (window as any).pageRepo = repo;
       this.repo = repo;
       this.branch = await this.repo.branch(this.$route.params.branch);
-      this.commits = await this.branch.commitsSinceLatestTag();
-      this.status = await this.branch.headCommit.getStatus();
+      [this.commits, this.status] = await Promise.all([
+        this.branch.commitsSinceLatestTag(),
+        this.branch.headCommit.getStatus(),
+      ])
       this.repoLoadingStatus = null;
     }
   },
@@ -98,7 +99,13 @@ export default Vue.extend({
     user() {
       this.loadRepo().catch(console.error);
     },
+    $route() {
+      this.loadRepo().catch(console.error);
+    },
   },
+  components: {
+    RepoNavContainer,
+  }
 })
 </script>
 

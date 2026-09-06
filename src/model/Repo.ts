@@ -1,4 +1,3 @@
-import * as GithubApi from './GithubApiTypes';
 import { Octokit } from '@octokit/rest';
 import firebaseApp from "@/firebase";
 import Branch from './Branch';
@@ -19,7 +18,7 @@ export default class Repo {
     repoSettings: RepoSettings|null = null;
     repoSettingsRef: firebase.firestore.DocumentReference;
 
-    constructor (public githubObj: GithubApi.Repository, readonly octokit: Octokit) {
+    constructor (public githubObj: Octokit.ReposGetResponse, readonly octokit: Octokit) {
         this.repoSettingsRef = firebaseApp.firestore().collection("repos").doc(`${githubObj.id}`);
     }
 

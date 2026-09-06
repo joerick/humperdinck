@@ -1,47 +1,66 @@
 import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import * as Octokit from '@octokit/rest';
+import {Octokit} from '@octokit/rest';
 
 admin.initializeApp();
 
 
-// // Start writing Firebase Functions
-// // https://firebase.google.com/docs/functions/typescript
-//
-export const updateUserAccess = functions.https.onCall(async (data, context) => {
-    const {uid} = data;
+export const updateUserRepos = functions.https.onCall(async (data, context) => {
+    const uid = context.auth?.uid
 
     if (!uid) {
-        throw new Error('param "uid" must be provided');
+        throw new Error('user must be logged in');
     }
 
     const db = admin.firestore();
 
-    const userDocument = await db.collection('users').doc(uid).get();
+    const userDocumentRef = db.collection('users').doc(uid);
+    const userDocument = await userDocumentRef.get();
     const userDocumentData = userDocument.data();
 
     if (!userDocumentData) throw 'missing user data';
 
-    const githubToken = userDocumentData['githubToken'];
+    const repos = await getAllUserRepos(userDocumentData['githubToken'])
 
+    const userAccessRecord = db.collection('useraccess').doc(uid);
+
+    await Promise.all([
+        userAccessRecord.set({
+            repoIds: repos.map(r => r.id.toString()),
+        }),
+        userDocumentRef.update({githubRepos: repos})
+    ])
+
+    return null;
+});
+
+async function getAllUserRepos(githubToken: string) {
     const octokit: Octokit = new Octokit({
         auth: `token ${githubToken}`,
         userAgent: 'joerick/humperdinck server',
     });
 
-    const reposResponse = await octokit.repos.list({
-        visibility: 'all',
-        sort: 'pushed',
-        per_page: 100,
-    });
+    const repos: Octokit.ReposListPublicResponseItem[] = []
+    let page = 1
 
-    const repos = reposResponse.data as Octokit.ReposListPublicResponse
+    while (true) {
+        const reposResponse = await octokit.repos.list({
+            visibility: 'all',
+            sort: 'pushed',
+            per_page: 100,
+            page,
+        });
 
-    const userAccessRecord = db.collection('useraccess').doc(uid);
+        const pageRepos = reposResponse.data as Octokit.ReposListPublicResponseItem[]
 
-    userAccessRecord.set({
-        repoIds: repos.map(r => r.id.toString()),
-    })
+        repos.push(...pageRepos)
 
-    return null;
-});
+        if (pageRepos.length < 100) {
+            break;
+        }
+
+        // there are more to fetch!
+        page += 1
+    }
+    return repos;
+}

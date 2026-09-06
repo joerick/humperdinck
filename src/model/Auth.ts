@@ -16,7 +16,6 @@ const Auth = {
         var githubToken = (result.credential as any).accessToken;
         const githubUsername = result.additionalUserInfo!.username!;
         var user = result.user!;
-        console.log({result, githubToken, user});
     
         const db = firebaseApp.firestore();
         await db.collection("users").doc(user.uid).set({
@@ -37,6 +36,8 @@ const Auth = {
             return new Promise<User|null>(r => {
                 this.addAuthStateListener(r);
             })
+        } else {
+            return AuthCurrentUser
         }
     },
     addAuthStateListener(listener: AuthStateListener) {

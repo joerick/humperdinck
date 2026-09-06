@@ -24,18 +24,18 @@ export default new Router({
       component: About,
     },
     {
-        path: '/:owner/:repo',
+        path: '/:owner/:repoName',
         name: 'repo',
         beforeEnter(to, from, next) {
             Auth.currentUser().then(user => {
                 if (!user) {
                     throw new Error('Log in to view this page');
                 }
-                return user.getRepo(to.params.owner, to.params.repo);
+                return user.getRepo(to.params.owner, to.params.repoName);
             }).then(repo => {
                 next({name: 'repo-branch', params: {
                     owner: repo.ownerUsername,
-                    repo: repo.name,
+                    repoName: repo.name,
                     branch: repo.defaultBranchName,
                 }});
             }).catch(error => {
@@ -44,7 +44,7 @@ export default new Router({
         }
     },
     {
-        path: '/:owner/:repo/branches/:branch',
+        path: '/:owner/:repoName/branches/:branch',
         name: 'repo-branch',
         component: Repo
     },

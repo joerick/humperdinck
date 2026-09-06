@@ -44,7 +44,6 @@ export default class Branch {
         this.githubObj = response.data
     }
 
-
     @cacheMethod({ttl: 60})
     async commitsSinceLatestTag() {
         const tags = await this.repo.tags();

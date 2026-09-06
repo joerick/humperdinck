@@ -24,10 +24,28 @@ export default Vue.extend({
   data() {
     return {
       repos: null as Repo[]|null,
+      error: null as null|string,
       loading: false,
     }
   },
   methods: {
+    async load() {
+      this.loading = true
+      this.repos = null
+      this.error = null
+
+      this.user.githubRepos()
+        .then(repos => {
+          this.repos = repos;
+        })
+        .catch(error => {
+          this.error = error;
+          console.error(error);
+        })
+        .finally(() => {
+          this.loading = false;
+        })
+    },
     repoClick(repo: Repo) {
       repo.defaultBranch().then((branch) => {
         console.log('branch', branch.name);
@@ -38,17 +56,13 @@ export default Vue.extend({
     },
   },
   watch: {
-    user() {
-      if (this.user) {
-        this.loading = true;
-        this.user.githubRepos().then(repos => {
-          this.loading = false;
-          this.repos = repos;
-        }).catch(error => {
-          this.loading = false;
-          console.error(error);
-        })
-      }
+    user: {
+      handler() {
+        if (this.user !== undefined) {
+          this.load()
+        }
+      },
+      immediate: true,
     }
   },
 });

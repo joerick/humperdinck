@@ -6,7 +6,6 @@
       {
         "type": "npm",
         "script": "serve",
-        "path": "web/",
         "group": "build",
         "isBackground": true,
         "problemMatcher": [
