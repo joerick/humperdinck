@@ -25,31 +25,23 @@
   </div>
 </template>
 
-<script lang="ts">
-import { defineComponent } from 'vue';
-import {Auth, User} from './model';
+<script setup lang="ts">
+import { ref } from 'vue';
+import { Auth, type User } from './model';
 
-export default defineComponent({
-  name: 'App',
-  data() {
-    return {
-      user: undefined as User|undefined|null,
-    }
-  },
-  created() {
-    Auth.addAuthStateListener(user => {
-      this.user = user
-    })
-  },
-  methods: {
-    login(): void {
-      Auth.login().catch(console.error);
-    },
-    logout(): void {
-      Auth.logout().catch(console.error);
-    },
-  },
-})
+const user = ref<User | null>();
+
+Auth.addAuthStateListener(currentUser => {
+  user.value = currentUser;
+});
+
+function login(): void {
+  Auth.login().catch(console.error);
+}
+
+function logout(): void {
+  Auth.logout().catch(console.error);
+}
 </script>
 
 

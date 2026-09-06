@@ -18,19 +18,12 @@
   </div>
 </template>
 
-<script lang="ts">
-import { defineComponent, type PropType } from 'vue'
-import { User } from '../model';
+<script setup lang="ts">
+import type { User } from '../model';
 
-export default defineComponent({
-  name: 'RepoNav',
-  props: {
-    user: {
-      type: Object as PropType<User|null>,
-      default: undefined,
-    },
-  },
-});
+defineProps<{
+  user?: User | null;
+}>();
 </script>
 
 <style lang="scss" scoped>

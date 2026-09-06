@@ -4,21 +4,11 @@
   </div>
 </template>
 
-<script lang="ts">
-import { defineComponent, type PropType } from 'vue';
+<script setup lang="ts">
 import RepoNavContainer from '@/components/RepoNavContainer.vue'
-import { User } from '@/model';
+import type { User } from '@/model';
 
-export default defineComponent({
-  name: 'home',
-  props: {
-    user: {
-      type: Object as PropType<User|null>,
-      default: undefined,
-    },
-  },
-  components: {
-    RepoNavContainer,
-  },
-});
+defineProps<{
+  user?: User | null;
+}>();
 </script>

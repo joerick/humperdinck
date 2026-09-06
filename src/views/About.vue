@@ -4,20 +4,11 @@
     <RepoList :user="user" />
   </div>
 </template>
-<script lang="ts">
-import { defineComponent, type PropType } from 'vue';
+<script setup lang="ts">
 import RepoList from '../components/RepoList.vue';
 import type { User } from '@/model';
 
-export default defineComponent({
-  props: {
-    user: {
-      type: Object as PropType<User|null>,
-      default: undefined,
-    },
-  },
-  components: {
-    RepoList,
-  }
-})
+defineProps<{
+  user?: User | null;
+}>();
 </script>

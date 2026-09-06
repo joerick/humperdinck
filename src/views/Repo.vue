@@ -33,86 +33,68 @@
   </div>
 </template>
 
-<script lang="ts">
-import { defineComponent, type PropType } from 'vue';
-import { Repo, User, Branch, Commit } from '../model';
+<script setup lang="ts">
+import { ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { type Repo, type User, type Branch, type Commit } from '../model';
 import type { CommitStatus } from '@/model/Commit';
 import RepoNavContainer from "@/components/RepoNavContainer.vue";
 
-export default defineComponent({
-  name: 'Repo',
-  props: {
-    user: {
-      type: Object as PropType<User|null>,
-      default: undefined,
-    }
-  },
-  data() {
-    return {
-      repo: null as Repo|null,
-      repoLoadingStatus: 'Loading...' as string|null,
-      branch: null as Branch|null,
-      commits: null as Commit[]|null,
-      latestVersion: null,
-      status: null as CommitStatus|null,
-    }
-  },
-  mounted() {
-    this.loadRepo().catch(console.error);
-  },
-  methods: {
-    async loadRepo() {
-      this.repo = null;
-      this.branch = null;
-      this.commits = null;
-      this.latestVersion = null;
-      this.status = null;
+const props = defineProps<{
+  user?: User | null;
+}>();
+const route = useRoute();
+
+const repo = ref<Repo | null>(null);
+const repoLoadingStatus = ref<string | null>('Loading...');
+const branch = ref<Branch | null>(null);
+const commits = ref<Commit[] | null>(null);
+const status = ref<CommitStatus | null>(null);
+
+async function loadRepo(): Promise<void> {
+      repo.value = null;
+      branch.value = null;
+      commits.value = null;
+      status.value = null;
       
-      if (this.user === undefined) {
+      if (props.user === undefined) {
         // don't know about the user yet. do nothing.
         return;
       }
 
-      if (this.user === null) {
-        this.repoLoadingStatus = 'Login to view this page';
+      if (props.user === null) {
+        repoLoadingStatus.value = 'Login to view this page';
         return;
       }
-      this.repoLoadingStatus = 'Loading...';
+      repoLoadingStatus.value = 'Loading...';
 
-      let repo;
+      let loadedRepo: Repo;
       try {
-        repo = await this.user.getRepo(
-          String(this.$route.params.owner),
-          String(this.$route.params.repoName),
+        loadedRepo = await props.user.getRepo(
+          String(route.params.owner),
+          String(route.params.repoName),
         )
       }
       catch(error) {
-        this.repoLoadingStatus = 'An error occurred. ' + String(error)
+        repoLoadingStatus.value = 'An error occurred. ' + String(error)
         return;
       }
 
-      (window as any).pageRepo = repo;
-      this.repo = repo;
-      this.branch = await this.repo.branch(String(this.$route.params.branch));
-      [this.commits, this.status] = await Promise.all([
-        this.branch.commitsSinceLatestTag(),
-        this.branch.headCommit.getStatus(),
+      (window as any).pageRepo = loadedRepo;
+      repo.value = loadedRepo;
+      branch.value = await loadedRepo.branch(String(route.params.branch));
+      [commits.value, status.value] = await Promise.all([
+        branch.value.commitsSinceLatestTag(),
+        branch.value.headCommit.getStatus(),
       ])
-      this.repoLoadingStatus = null;
-    }
-  },
-  watch: {
-    user() {
-      this.loadRepo().catch(console.error);
-    },
-    $route() {
-      this.loadRepo().catch(console.error);
-    },
-  },
-  components: {
-    RepoNavContainer,
-  }
-})
+      repoLoadingStatus.value = null;
+}
+
+watch(
+  [() => props.user, () => route.fullPath],
+  () => loadRepo().catch(console.error),
+  { immediate: true },
+);
 </script>
 
 <style>

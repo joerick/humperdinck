@@ -7,23 +7,13 @@
   </div>
 </template>
 
-<script lang="ts">
-import { defineComponent, type PropType } from 'vue'
+<script setup lang="ts">
 import RepoNav from './RepoNav.vue'
-import { User } from '@/model'
+import type { User } from '@/model'
 
-export default defineComponent({
-  name: 'RepoNavContainer',
-  props: {
-    user: {
-      type: Object as PropType<User|null>,
-      default: undefined,
-    },
-  },
-  components: {
-    RepoNav,
-  }
-})
+defineProps<{
+  user?: User | null;
+}>();
 </script>
 
 <style lang="scss" scoped>
