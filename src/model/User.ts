@@ -63,6 +63,7 @@ export default class User {
 
     get githubToken() { return this.userDocumentData.githubToken }
     get githubUsername() { return this.userDocumentData.githubUsername }
+    get profileURL() { return this.userDocumentData.profileURL }
 
     get githubRepos(): UserRepo[] {
         return this.userDocumentData.githubRepos!.map(githubObj => ({

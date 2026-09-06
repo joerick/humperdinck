@@ -9,6 +9,7 @@ import ReleaseChanges from '@/components/ReleaseChanges.vue';
 import ReleaseWorkflow from '@/components/ReleaseWorkflow.vue';
 import RepoSettings from '@/components/RepoSettings.vue';
 import RepoNav from '@/components/RepoNav.vue';
+import AccountMenu from '@/components/AccountMenu.vue';
 
 const props = defineProps<{
   user?: User | null;
@@ -130,6 +131,7 @@ watch(
               <option v-for="name in branchNames" :key="name" :value="name">{{ name }}</option>
             </select>
           </div>
+          <AccountMenu :user="user" />
         </div>
 
         <nav class="repo-tabs" aria-label="Repository sections">
@@ -182,9 +184,9 @@ watch(
 </template>
 
 <style scoped>
-.repo-content { padding: 30px; background: #f5f7fa; min-height: calc(100vh - 68px); }
+.repo-content { min-height: 100vh; padding: 30px; background: #f5f7fa; }
 .loading-state { padding: 50px 24px; color: #657081; }
-.repo-summary { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 22px; max-width: 850px; margin: 0 auto; text-align: left; }
+.repo-summary { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 22px; max-width: 850px; margin: 0 auto; text-align: left; }
 .repo-summary :deep(.repo-picker) { margin-top: 3px; }
 .eyebrow { margin: 0; color: #657081; font-size: .72rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
 .branch-control { display: grid; gap: 5px; }
@@ -208,5 +210,5 @@ select { min-width: 160px; padding: 8px 32px 8px 10px; color: #273444; border: 1
 .setup-prompt p:not(.eyebrow) { color: #657081; line-height: 1.55; }
 .primary-link { display: inline-block; margin-top: 10px; padding: 11px 16px; color: #fff; border-radius: 8px; background: #365f82; font-weight: 750; text-decoration: none; }
 .page-error { max-width: 850px; margin: 24px auto; padding: 14px; color: #a3421b; border-radius: 8px; background: #fff0e9; }
-@media (max-width: 760px) { .repo-content { padding: 22px 12px; } .repo-summary { grid-template-columns: 1fr; align-items: flex-start; } .latest-commit, .checks-card { grid-template-columns: 34px 1fr; } .latest-commit > div:last-of-type { display: grid; gap: 3px; } .latest-commit small, .checks-card > a { grid-column: 2; margin-left: 0; } }
+@media (max-width: 760px) { .repo-content { padding: 22px 12px; } .repo-summary { grid-template-columns: 1fr auto; align-items: flex-start; } .repo-summary > div:first-child { grid-column: 1 / -1; } .checks-card { grid-template-columns: 34px 1fr; } .checks-card > a { grid-column: 2; margin-left: 0; } }
 </style>
