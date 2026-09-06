@@ -1,11 +1,11 @@
 import { Octokit, type RestEndpointMethodTypes } from '@octokit/rest';
-import { doc, onSnapshot, type DocumentReference } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, setDoc, type DocumentReference } from 'firebase/firestore';
 import { db } from '@/firebase';
 import Branch from './Branch';
 import { asyncGeneratorToList } from '@/util';
 import { cacheMethod } from '@/util-cache';
 
-interface RepoSettings {
+export interface RepoSettings {
     // changelogPath?: string,
     // changelogNewestFirst: boolean,
     filesContainingVersionNumbersToUpdate: string[],
@@ -22,27 +22,24 @@ export default class Repo {
     }
 
     async init() {
-        await new Promise<void>((resolve, reject) => {
-            onSnapshot(this.repoSettingsRef, (snapshot) => {
-                if (snapshot.exists()) {
-                    this.repoSettings = snapshot.data() as RepoSettings;
-                } else {
-                    this.repoSettings = null;
-                }
-
-                // continue init after the first value
-                // (only the first call to resolve() does anything.)
-                console.log('got repo obj', this.repoSettingsRef.path)
-                resolve();
-            }, (error) => {
-                console.error('failed to get repo object from firestore', this.repoSettingsRef.path, this.githubObj.id);
-                reject(error);
-            });
-        })
+        const snapshot = await getDoc(this.repoSettingsRef);
+        this.repoSettings = snapshot.exists()
+            ? snapshot.data() as RepoSettings
+            : null;
     }
 
     get isEnabled() {
         return this.repoSettings !== null;
+    }
+
+    async updateSettings(settings: RepoSettings) {
+        await setDoc(this.repoSettingsRef, settings);
+        this.repoSettings = settings;
+    }
+
+    async disableReleaseWorkflow() {
+        await deleteDoc(this.repoSettingsRef);
+        this.repoSettings = null;
     }
 
     get ownerUsername() { return this.githubObj.owner.login }

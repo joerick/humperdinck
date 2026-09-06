@@ -11,6 +11,11 @@ interface VersionTag {
     name: string,
 }
 
+export interface ReleaseFilePreview {
+    path: string,
+    currentVersionFound: boolean,
+}
+
 type GithubBranch = RestEndpointMethodTypes['repos']['getBranch']['response']['data'];
 
 export default class Branch {
@@ -42,11 +47,11 @@ export default class Branch {
         const commits = [];
 
         for await (const commit of this.repo.commitsGenerator({headSha: this.headCommit.sha})) {
-            commits.push(commit);
-
             if (tagShas.includes(commit.sha)) {
                 break;
             }
+
+            commits.push(commit);
         }
         
         return commits.map(c => new Commit(c, this.repo, this.octokit));
@@ -60,8 +65,6 @@ export default class Branch {
         const versionTags = tags.filter(t => Version.parse(t.name));
         const commitShaToVersionMap: {[sha: string]: string} = {};
         versionTags.forEach(v => { commitShaToVersionMap[v.commit.sha] = v.name });
-
-        console.log({tags, versionTags})
 
         if (versionTags.length == 0) {
             throw new Error('No version tags found in this repo');
@@ -84,7 +87,21 @@ export default class Branch {
         throw new Error('Couldn\'t find a commit in this branch has a version');
     }
 
-    async draftReleaseCommit(newVersion: string, changelog: string): Promise<Commit> {
+    async previewRelease(newVersion: string): Promise<ReleaseFilePreview[]> {
+        const currentVersion = await this.currentVersion();
+        const filePaths = this.repo.repoSettings?.filesContainingVersionNumbersToUpdate ?? [];
+
+        return Promise.all(filePaths.map(async path => {
+            const file = await this.headCommit.root.getFile(path);
+            const contents = await file.contents();
+            return {
+                path,
+                currentVersionFound: contents.includes(currentVersion.name),
+            };
+        }));
+    }
+
+    async draftReleaseCommit(newVersion: string): Promise<Commit> {
         const currentVersion = await this.currentVersion();
         const filePaths = this.repo.repoSettings?.filesContainingVersionNumbersToUpdate ?? [];
         const files = await Promise.all(filePaths.map(path => this.headCommit.root.getFile(path)));
@@ -127,8 +144,6 @@ export default class Branch {
             tree: commitTreeSha,
             parents: [this.headCommit.sha],
         });
-
-        console.log('success!', newCommitResponse);
 
         return new Commit(newCommitResponse.data as any, this.repo, this.octokit);
     }
