@@ -6,4 +6,3 @@ declare module '*.vue' {
 declare module 'http' {
     export class Agent {}
 }
-declare module 'octicons';

@@ -10,15 +10,16 @@
   },
   "main": "lib/index.js",
   "dependencies": {
-    "firebase-admin": "~8.10.0",
-    "firebase-functions": "^3.6.0",
-    "@octokit/rest": "16.43.1"
+    "@octokit/rest": "22.0.1",
+    "firebase-admin": "14.3.0",
+    "firebase-functions": "7.3.2"
   },
   "devDependencies": {
-    "typescript": "^3.8.3"
+    "typescript": "7.0.2"
   },
   "engines": {
-    "node": "8"
+    "node": "22"
   },
+  "type": "module",
   "private": true
 }

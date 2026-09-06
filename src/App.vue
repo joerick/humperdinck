@@ -1,7 +1,7 @@
 <template>
   <div id="app">
     <div class="nav">
-      <router-link to="home" class="logotype">Humperdinck</router-link>
+      <router-link :to="{name: 'home'}" class="logotype">Humperdinck</router-link>
       <div class="spacer" style="flex: 1"></div>
 
       <div class="nav-account">
@@ -18,16 +18,18 @@
       </div>
     </div>
     <div class="app-content">
-      <router-view :user="user" />
+      <router-view v-slot="{ Component }">
+        <component :is="Component" :user="user" />
+      </router-view>
     </div>
   </div>
 </template>
 
 <script lang="ts">
-import Vue from 'vue';
+import { defineComponent } from 'vue';
 import {Auth, User} from './model';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'App',
   data() {
     return {

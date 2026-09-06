@@ -20,16 +20,16 @@ export default {
         //   Group 2: 3.2.1
         //   Group 3: -beta
 
-        const numbers = match[2].split('.').map(n => (
+        const numbers = match[2]!.split('.').map(n => (
             (n !== undefined) ? parseInt(n) : undefined
         ));
 
         return {
-            preamble: match[1],
+            preamble: match[1]!,
             major: numbers[0]!,
             minor: numbers[1]!, // guaranteed by the regex
             patch: numbers[2],
-            postamble: match[3],
+            postamble: match[3] ?? '',
         }
     },
     render(parts: VersionParts): string {
@@ -42,4 +42,3 @@ export default {
         return `${parts.preamble}${numbers}${parts.postamble}`;
     }
 };
-

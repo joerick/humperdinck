@@ -1,29 +1,44 @@
-# web
+# Humperdinck
 
-## Project setup
-```
+Vue 3 and Firebase application for inspecting repository release state.
+
+## Requirements
+
+- Node.js 22
+- npm
+- Firebase CLI for emulator and deployment workflows
+
+## Setup
+
+```sh
 npm install
+npm --prefix functions install
 ```
 
-### Compiles and hot-reloads for development
-```
-npm run serve
+## Development
+
+```sh
+npm run dev
 ```
 
-### Compiles and minifies for production
-```
+The frontend currently uses Firebase project `humperdinck-a7b3e`. Authentication,
+Firestore, and callable Functions therefore use that project unless emulator or
+environment configuration is added.
+
+## Verify
+
+```sh
 npm run build
-```
-
-### Run your tests
-```
 npm run test
-```
-
-### Lints and fixes files
-```
 npm run lint
+npm --prefix functions run build
 ```
 
-### Customize configuration
-See [Configuration Reference](https://cli.vuejs.org/config/).
+## Deploy
+
+Reauthenticate the Firebase CLI first if necessary:
+
+```sh
+firebase login --reauth
+firebase deploy
+```

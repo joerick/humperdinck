@@ -2,7 +2,9 @@
   <div class="repo-nav">
     <h3>Repos</h3>
 
-    <div class="loading" v-if="!user">Loading…</div>
+    <div class="loading" v-if="user === undefined">Loading…</div>
+
+    <div class="empty" v-else-if="user === null">Log in to see repositories.</div>
 
     <div class="repos" v-else>
       <router-link class="repo"
@@ -17,15 +19,16 @@
 </template>
 
 <script lang="ts">
-import Vue, { PropType } from 'vue'
-import octicons from 'octicons';
-import { User, Repo } from '../model';
-import { UserRepo } from '@/model/User';
+import { defineComponent, type PropType } from 'vue'
+import { User } from '../model';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'RepoNav',
   props: {
-    user: Object as PropType<User|null|undefined>,
+    user: {
+      type: Object as PropType<User|null>,
+      default: undefined,
+    },
   },
 });
 </script>

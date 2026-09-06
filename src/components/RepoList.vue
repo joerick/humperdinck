@@ -1,66 +1,64 @@
 <template>
   <div>
     <div class="loading" v-if="loading">Loading…</div>
+    <div class="error" v-else-if="error">{{ error }}</div>
     <div class="repos" v-else>
-      <div class="repo"
+      <router-link class="repo"
            v-for="(repo, index) in repos"
            :key="index"
-           @click="repoClick(repo)">
+           :to="{name: 'repo', params: {owner: repo.ownerUsername, repoName: repo.name}}">
         {{repo.ownerUsername}}/{{repo.name}}
-      </div>
+      </router-link>
     </div>
   </div>
 </template>
 
 <script lang="ts">
-import Vue, { PropType } from 'vue';
-import { User, Repo } from '@/model';
+import { defineComponent, type PropType } from 'vue';
+import { User } from '@/model';
+import type { UserRepo } from '@/model/User';
 
-export default Vue.extend({
+export default defineComponent({
   name: 'RepoList',
   props: {
-    user: Object as PropType<User>,
+    user: {
+      type: Object as PropType<User|null>,
+      default: undefined,
+    },
   },
   data() {
     return {
-      repos: null as Repo[]|null,
+      repos: null as UserRepo[]|null,
       error: null as null|string,
       loading: false,
     }
   },
   methods: {
     async load() {
+      if (this.user === undefined) {
+        this.loading = true
+        return
+      }
+
+      if (this.user === null) {
+        this.loading = false
+        this.repos = []
+        this.error = 'Log in to see repositories.'
+        return
+      }
+
       this.loading = true
       this.repos = null
       this.error = null
 
-      this.user.githubRepos()
-        .then(repos => {
-          this.repos = repos;
-        })
-        .catch(error => {
-          this.error = error;
-          console.error(error);
-        })
-        .finally(() => {
-          this.loading = false;
-        })
-    },
-    repoClick(repo: Repo) {
-      repo.defaultBranch().then((branch) => {
-        console.log('branch', branch.name);
-        return branch.currentVersion();
-      }).then(version => {
-        console.log({version});
-      }).catch(console.error);
+      this.repos = this.user.githubRepos
+      this.loading = false
     },
   },
   watch: {
     user: {
       handler() {
-        if (this.user !== undefined) {
-          this.load()
-        }
+        this.load()
       },
       immediate: true,
     }

@@ -1,26 +1,33 @@
-import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
+import { initializeApp } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
+import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import {Octokit} from '@octokit/rest';
 
-admin.initializeApp();
+initializeApp();
 
-
-export const updateUserRepos = functions.https.onCall(async (data, context) => {
-    const uid = context.auth?.uid
+export const updateUserRepos = onCall(async (request) => {
+    const uid = request.auth?.uid
 
     if (!uid) {
-        throw new Error('user must be logged in');
+        throw new HttpsError('unauthenticated', 'User must be logged in.');
     }
 
-    const db = admin.firestore();
+    const db = getFirestore();
 
     const userDocumentRef = db.collection('users').doc(uid);
     const userDocument = await userDocumentRef.get();
     const userDocumentData = userDocument.data();
 
-    if (!userDocumentData) throw 'missing user data';
+    if (!userDocumentData) {
+        throw new HttpsError('failed-precondition', 'Missing user data.');
+    }
 
-    const repos = await getAllUserRepos(userDocumentData['githubToken'])
+    const githubToken = userDocumentData.githubToken;
+    if (typeof githubToken !== 'string' || !githubToken) {
+        throw new HttpsError('failed-precondition', 'Missing GitHub credentials.');
+    }
+
+    const repos = await getAllUserRepos(githubToken)
 
     const userAccessRecord = db.collection('useraccess').doc(uid);
 
@@ -40,27 +47,9 @@ async function getAllUserRepos(githubToken: string) {
         userAgent: 'joerick/humperdinck server',
     });
 
-    const repos: Octokit.ReposListPublicResponseItem[] = []
-    let page = 1
-
-    while (true) {
-        const reposResponse = await octokit.repos.list({
-            visibility: 'all',
-            sort: 'pushed',
-            per_page: 100,
-            page,
-        });
-
-        const pageRepos = reposResponse.data as Octokit.ReposListPublicResponseItem[]
-
-        repos.push(...pageRepos)
-
-        if (pageRepos.length < 100) {
-            break;
-        }
-
-        // there are more to fetch!
-        page += 1
-    }
-    return repos;
+    return octokit.paginate(octokit.rest.repos.listForAuthenticatedUser, {
+        visibility: 'all',
+        sort: 'pushed',
+        per_page: 100,
+    });
 }

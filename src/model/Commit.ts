@@ -5,8 +5,17 @@ import { cacheMethod } from '@/util-cache';
 
 export type CommitStatus = 'none'|'pending'|'success'|'failure'
 
+export interface GithubCommit {
+    sha: string;
+    commit: {
+        tree: {
+            sha: string;
+        };
+    };
+}
+
 export default class Commit {
-    constructor (public githubObj: Octokit.ReposGetBranchResponseCommit, 
+    constructor (public githubObj: GithubCommit,
                  readonly repo: Repo,
                  readonly octokit: Octokit) {}
 
@@ -15,7 +24,7 @@ export default class Commit {
     get root() { return new RepoRootFile(this, this.repo, this.octokit) }
 
     async getStatus(): Promise<CommitStatus> {
-        const response = await this.octokit.repos.getCombinedStatusForRef({
+        const response = await this.octokit.rest.repos.getCombinedStatusForRef({
             ref: this.sha,
             repo: this.repo.name,
             owner: this.repo.ownerUsername,

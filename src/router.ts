@@ -1,17 +1,14 @@
-import Vue from 'vue';
-import Router from 'vue-router';
+import { createRouter, createWebHistory } from 'vue-router';
+import { defineComponent } from 'vue';
 import Home from './views/Home.vue';
 import { Auth } from './model';
 
-Vue.use(Router);
+const About = () => import('./views/About.vue')
+const Repo = () => import('./views/Repo.vue')
+const RedirectView = defineComponent({render: () => null})
 
-// const Home = () => import(/* webpackChunkName: "home" */ './views/Home.vue')
-const About = () => import(/* webpackChunkName: "about" */ './views/About.vue')
-const Repo = () => import(/* webpackChunkName: "repo" */ './views/Repo.vue')
-
-export default new Router({
-  mode: 'history',
-  base: process.env.BASE_URL,
+export default createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
       path: '/',
@@ -26,21 +23,18 @@ export default new Router({
     {
         path: '/:owner/:repoName',
         name: 'repo',
-        beforeEnter(to, from, next) {
-            Auth.currentUser().then(user => {
-                if (!user) {
-                    throw new Error('Log in to view this page');
-                }
-                return user.getRepo(to.params.owner, to.params.repoName);
-            }).then(repo => {
-                next({name: 'repo-branch', params: {
-                    owner: repo.ownerUsername,
-                    repoName: repo.name,
-                    branch: repo.defaultBranchName,
-                }});
-            }).catch(error => {
-                next(error);
-            })
+        component: RedirectView,
+        async beforeEnter(to) {
+            const user = await Auth.currentUser();
+            if (!user) {
+                return {name: 'home'};
+            }
+            const repo = await user.getRepo(String(to.params.owner), String(to.params.repoName));
+            return {name: 'repo-branch', params: {
+                owner: repo.ownerUsername,
+                repoName: repo.name,
+                branch: repo.defaultBranchName,
+            }};
         }
     },
     {

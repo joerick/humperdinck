@@ -1,29 +1,35 @@
-import * as firebase from 'firebase/app';
-import 'firebase/functions';
-import firebaseApp from '@/firebase';
-import {Octokit} from '@octokit/rest';
+import {
+    collection,
+    doc,
+    type CollectionReference,
+    type DocumentReference,
+} from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '@/firebase';
+import {Octokit, type RestEndpointMethodTypes} from '@octokit/rest';
 import Repo from './Repo';
-import * as GithubApi from './GithubApiTypes';
 import { FirestoreDocumentObserver } from '@/util';
+
+type GithubRepository = RestEndpointMethodTypes['repos']['get']['response']['data'];
 
 interface UserDocument {
     githubUsername: string,
     profileURL: string,
     githubToken: string,
-    githubRepos?: Octokit.ReposListPublicResponseItem[]
+    githubRepos?: GithubRepository[]
 }
 
 export default class User {
     octokit!: Octokit;
     userDocumentData!: UserDocument;
-    userDocumentRef: firebase.firestore.DocumentReference<UserDocument>;
-    reposCollectionRef: firebase.firestore.CollectionReference<UserRepo>;
+    userDocumentRef: DocumentReference<UserDocument>;
+    reposCollectionRef: CollectionReference<UserRepo>;
 
     repoSummaries!: UserRepo[]
 
     constructor (readonly uid: string) {
-        this.userDocumentRef = firebaseApp.firestore().collection("users").doc(this.uid) as any;
-        this.reposCollectionRef = this.userDocumentRef.collection('repos') as any;
+        this.userDocumentRef = doc(db, 'users', this.uid) as DocumentReference<UserDocument>;
+        this.reposCollectionRef = collection(this.userDocumentRef, 'repos') as CollectionReference<UserRepo>;
     }
 
     /**
@@ -43,7 +49,7 @@ export default class User {
 
         if (this.userDocumentData.githubRepos === undefined) {
             await Promise.all([
-                firebaseApp.functions().httpsCallable('updateUserRepos')(),
+                httpsCallable<void, null>(functions, 'updateUserRepos')(),
                 documentObserver.nextValue(),
             ])
         }
@@ -64,8 +70,8 @@ export default class User {
         }))
     }
 
-    async getRepo(owner: string, name: string): Repo {
-        const response = await this.octokit.repos.get({
+    async getRepo(owner: string, name: string): Promise<Repo> {
+        const response = await this.octokit.rest.repos.get({
             owner: owner,
             repo: name,
         })

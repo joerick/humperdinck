@@ -1,8 +1,9 @@
-import firebase from 'firebase/app';
-import 'firebase/firestore';
-import 'firebase/auth';
+import { initializeApp } from 'firebase/app';
+import { getAuth, GithubAuthProvider } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 
-const app = firebase.initializeApp({
+const app = initializeApp({
   "apiKey": "AIzaSyDh8ipYyhj9vZKANRU6uVDkFeIyFeUjl4s",
   "databaseURL": "https://humperdinck-a7b3e.firebaseio.com",
   "storageBucket": "humperdinck-a7b3e.appspot.com",
@@ -12,9 +13,10 @@ const app = firebase.initializeApp({
 });
 export default app;
 
-export const db = app.firestore();
-export const auth = app.auth();
-export const authProvider = new firebase.auth.GithubAuthProvider();
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const functions = getFunctions(app);
+export const authProvider = new GithubAuthProvider();
 authProvider.addScope('repo');
 authProvider.setCustomParameters({
   'allow_signup': 'false'

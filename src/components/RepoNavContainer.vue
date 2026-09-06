@@ -8,14 +8,17 @@
 </template>
 
 <script lang="ts">
-import Vue, { PropType } from 'vue'
+import { defineComponent, type PropType } from 'vue'
 import RepoNav from './RepoNav.vue'
 import { User } from '@/model'
 
-export default Vue.extend({
+export default defineComponent({
   name: 'RepoNavContainer',
   props: {
-    user: Object as PropType<User>,
+    user: {
+      type: Object as PropType<User|null>,
+      default: undefined,
+    },
   },
   components: {
     RepoNav,

@@ -1,15 +1,15 @@
 {
   "compilerOptions": {
-    "module": "commonjs",
+    "rootDir": "src",
+    "module": "NodeNext",
     "noImplicitReturns": true,
     "noUnusedLocals": true,
     "outDir": "lib",
     "sourceMap": true,
     "strict": true,
-    "target": "es2015",
-    "importHelpers": true,
-    "moduleResolution": "node",
-    "esModuleInterop": true,
+    "target": "ES2022",
+    "moduleResolution": "NodeNext",
+    "esModuleInterop": true
   },
   "compileOnSave": true,
   "include": [

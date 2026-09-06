@@ -1,4 +1,10 @@
-import { firestore } from 'firebase';
+import {
+    onSnapshot,
+    type DocumentData,
+    type DocumentReference,
+    type FirestoreError,
+    type Unsubscribe,
+} from 'firebase/firestore';
 
 export const Base64 = {
     // base64 decoding: from DOMString to Base64-encoded utf8, and back again.
@@ -36,13 +42,13 @@ export async function asyncGeneratorToList<T>(generator: AsyncIterableIterator<T
     return result;
 }
 
-export class FirestoreDocumentObserver<T = firestore.DocumentData> {
-    private waitingValueCallbacks: ((data: T|undefined, error?: firestore.FirestoreError|Error) => void)[] = []
-    private _dispose: () => void
+export class FirestoreDocumentObserver<T = DocumentData> {
+    private waitingValueCallbacks: ((data: T|undefined, error?: FirestoreError|Error) => void)[] = []
+    private _dispose: Unsubscribe
 
-    constructor(readonly reference: firestore.DocumentReference<T>,
+    constructor(readonly reference: DocumentReference<T>,
                 readonly onUpdate: (documentData: T|undefined) => void) {
-        this._dispose = reference.onSnapshot({
+        this._dispose = onSnapshot(reference, {
             next: snapshot => {
                 const data = snapshot.data()
                 onUpdate(data)

@@ -1,5 +1,6 @@
-import { Octokit } from '@octokit/rest';
-import firebaseApp from "@/firebase";
+import { Octokit, type RestEndpointMethodTypes } from '@octokit/rest';
+import { doc, onSnapshot, type DocumentReference } from 'firebase/firestore';
+import { db } from '@/firebase';
 import Branch from './Branch';
 import { asyncGeneratorToList } from '@/util';
 import { cacheMethod } from '@/util-cache';
@@ -10,23 +11,21 @@ interface RepoSettings {
     filesContainingVersionNumbersToUpdate: string[],
 }
 
-function RepoSettingsDefault(): RepoSettings {
-    return {filesContainingVersionNumbersToUpdate: []}
-}
+type GithubRepository = RestEndpointMethodTypes['repos']['get']['response']['data'];
 
 export default class Repo {
     repoSettings: RepoSettings|null = null;
-    repoSettingsRef: firebase.firestore.DocumentReference;
+    repoSettingsRef: DocumentReference;
 
-    constructor (public githubObj: Octokit.ReposGetResponse, readonly octokit: Octokit) {
-        this.repoSettingsRef = firebaseApp.firestore().collection("repos").doc(`${githubObj.id}`);
+    constructor (public githubObj: GithubRepository, readonly octokit: Octokit) {
+        this.repoSettingsRef = doc(db, 'repos', String(githubObj.id));
     }
 
     async init() {
-        await new Promise((resolve, reject) => {
-            this.repoSettingsRef.onSnapshot((doc) => {
-                if (doc.exists) {
-                    this.repoSettings = (doc.data()! as any);
+        await new Promise<void>((resolve, reject) => {
+            onSnapshot(this.repoSettingsRef, (snapshot) => {
+                if (snapshot.exists()) {
+                    this.repoSettings = snapshot.data() as RepoSettings;
                 } else {
                     this.repoSettings = null;
                 }
@@ -51,7 +50,7 @@ export default class Repo {
 
     get defaultBranchName() { return this.githubObj.default_branch }
     async branch(branchName: string) {
-        const branchResult = await this.octokit.repos.getBranch({
+        const branchResult = await this.octokit.rest.repos.getBranch({
             owner: this.ownerUsername,
             repo: this.name,
             branch: branchName
@@ -63,7 +62,7 @@ export default class Repo {
     }
     @cacheMethod({ttl: 180})
     async branchNames() {
-        const branchResponse = await this.octokit.repos.listBranches({
+        const branchResponse = await this.octokit.rest.repos.listBranches({
             owner: this.ownerUsername,
             repo: this.name,
         })
@@ -72,10 +71,10 @@ export default class Repo {
     }
 
     async *tagsGenerator() {
-        let page = 0;
+        let page = 1;
 
         while (true) {
-            const tagsRequest = await this.octokit.repos.listTags({
+            const tagsRequest = await this.octokit.rest.repos.listTags({
                 owner: this.ownerUsername,
                 repo: this.name,
                 per_page: 100,
@@ -94,14 +93,14 @@ export default class Repo {
         }
     }
 
-    async tags(): Promise<Octokit.ReposListTagsResponseItem[]> {
+    async tags() {
         return asyncGeneratorToList(this.tagsGenerator());
     }
 
     async *commitsGenerator({headSha}: {headSha: string}) {
-        let page = 0;
+        let page = 1;
         while (true) {
-            const commitsRequest = await this.octokit.repos.listCommits({
+            const commitsRequest = await this.octokit.rest.repos.listCommits({
                 owner: this.ownerUsername,
                 repo: this.name,
                 sha: headSha,

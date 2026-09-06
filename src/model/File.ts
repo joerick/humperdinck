@@ -37,7 +37,7 @@ export default class File {
     async contents() {
         if (this.isADirectory) { throw new Error('directories have no contents') }
 
-        const response = await this.octokit.git.getBlob({
+        const response = await this.octokit.rest.git.getBlob({
             owner: this.repo.ownerUsername,
             repo: this.repo.name,
             file_sha: this.sha
@@ -50,7 +50,7 @@ export default class File {
     async files(): Promise<File[]> {
         if (!this.isADirectory) { throw new Error('only directories have files in them') }
 
-        const response = await this.octokit.git.getTree({
+        const response = await this.octokit.rest.git.getTree({
             owner: this.repo.ownerUsername,
             repo: this.repo.name,
             tree_sha: this.sha,

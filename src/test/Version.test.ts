@@ -1,4 +1,5 @@
 import Version from '../model/Version';
+import { expect, test } from 'vitest';
 
 test('minimal', () => {
   expect(Version.parse('3.0')).toStrictEqual({

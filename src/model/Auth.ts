@@ -1,8 +1,15 @@
-import firebaseApp, { authProvider } from "@/firebase";
+import {
+    GithubAuthProvider,
+    getAdditionalUserInfo,
+    onAuthStateChanged,
+    signInWithPopup,
+    signOut,
+    type User as FirebaseUser,
+} from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+import { auth, authProvider, db } from '@/firebase';
 import User from './User';
 import { Mutex } from 'async-mutex';
-
-const auth = firebaseApp.auth();
 
 type AuthStateListener = (user: User|null)=>void;
 const authStateListeners: AuthStateListener[] = [];
@@ -12,24 +19,30 @@ let AuthCurrentUser: undefined|null|User = undefined;
 
 const Auth = {
     async login(): Promise<User> {
-        const result = await auth.signInWithPopup(authProvider);
-        var githubToken = (result.credential as any).accessToken;
-        const githubUsername = result.additionalUserInfo!.username!;
-        var user = result.user!;
-    
-        const db = firebaseApp.firestore();
-        await db.collection("users").doc(user.uid).set({
-            githubUsername,
-            profileURL: user.photoURL,
-            githubToken,
-        });
+        const result = await signInWithPopup(auth, authProvider);
+        const credential = GithubAuthProvider.credentialFromResult(result);
+        const githubToken = credential?.accessToken;
+        const githubUsername = getAdditionalUserInfo(result)?.username;
+        const firebaseUser = result.user;
 
-        const userModel = new User(user.uid);
+        if (!githubToken || !githubUsername) {
+            throw new Error('GitHub did not return the required account details.');
+        }
+    
+        await setDoc(doc(db, 'users', firebaseUser.uid), {
+            githubUsername,
+            profileURL: firebaseUser.photoURL,
+            githubToken,
+        }, {merge: true});
+
+        const userModel = new User(firebaseUser.uid);
         await userModel.init()
+        AuthCurrentUser = userModel;
+        authStateListeners.forEach(listener => listener(userModel));
         return userModel
     },
     async logout(): Promise<void> {
-        await auth.signOut();
+        await signOut(auth);
     },
     async currentUser() {
         if (AuthCurrentUser === undefined) {
@@ -47,7 +60,7 @@ const Auth = {
             listener(AuthCurrentUser);
         }
     },
-    async _authStateChanged(firebaseUser: firebase.User|null): Promise<void> {
+    async _authStateChanged(firebaseUser: FirebaseUser|null): Promise<void> {
         await authStateMutex.runExclusive(async () => {
             if (firebaseUser) {
                 let user: User|null = new User(firebaseUser.uid);
@@ -72,6 +85,6 @@ const Auth = {
 export default Auth;
 
 // hook it up to Firebase
-auth.onAuthStateChanged((user) => {
-  Auth._authStateChanged(user).catch;
+onAuthStateChanged(auth, (user) => {
+  Auth._authStateChanged(user).catch(console.error);
 });

@@ -3,27 +3,18 @@ import { cacheMethod } from '@/util-cache';
 import Commit from './Commit';
 import Repo from './Repo';
 import Version from './Version';
-import { Octokit } from '@octokit/rest';
+import { Octokit, type RestEndpointMethodTypes } from '@octokit/rest';
 
-
-interface GithubApiRef {
-    ref: string,
-    node_id: string,
-    url: string,
-    object: {
-        type: "commit"|"tag",
-        sha: string,
-        url: string,
-    }
-}
 
 interface VersionTag {
     sha: string,
     name: string,
 }
 
+type GithubBranch = RestEndpointMethodTypes['repos']['getBranch']['response']['data'];
+
 export default class Branch {
-    constructor (public githubObj: Octokit.ReposGetBranchResponse, 
+    constructor (public githubObj: GithubBranch,
                  readonly repo: Repo,
                  readonly octokit: Octokit) {}
 
@@ -36,7 +27,7 @@ export default class Branch {
     }
 
     async refresh() {
-        const response = await this.octokit.repos.getBranch({
+        const response = await this.octokit.rest.repos.getBranch({
             owner: this.repo.ownerUsername,
             repo: this.repo.name,
             branch: this.name,
@@ -102,7 +93,7 @@ export default class Branch {
             const oldContents = await f.contents();
             const newContents = oldContents.replace(currentVersion.name, newVersion);
 
-            const newBlobResponse = await this.octokit.git.createBlob({
+            const newBlobResponse = await this.octokit.rest.git.createBlob({
                 owner: this.repo.ownerUsername,
                 repo: this.repo.name,
                 content: Base64.encode(newContents),
@@ -120,7 +111,7 @@ export default class Branch {
         let commitTreeSha = this.headCommit.treeSha;
 
         if (newFiles.length > 0) {
-            const newTreeResponse = await this.octokit.git.createTree({
+            const newTreeResponse = await this.octokit.rest.git.createTree({
                 owner: this.repo.ownerUsername,
                 repo: this.repo.name,
                 base_tree: this.headCommit.treeSha,
@@ -129,7 +120,7 @@ export default class Branch {
             commitTreeSha = newTreeResponse.data.sha;
         }
 
-        const newCommitResponse = await this.octokit.git.createCommit({
+        const newCommitResponse = await this.octokit.rest.git.createCommit({
             owner: this.repo.ownerUsername,
             repo: this.repo.name,
             message: `${newVersion}`,
@@ -145,7 +136,7 @@ export default class Branch {
     async release(newVersion: string, changelog: string, commit: Commit) {
         // update this branch to point at the commit, tag with newVersion,
         // and release with Github releases
-        const releaseResponse = await this.octokit.repos.createRelease({
+        const releaseResponse = await this.octokit.rest.repos.createRelease({
             owner: this.repo.ownerUsername,
             repo: this.repo.name,
             tag_name: newVersion,
@@ -156,7 +147,7 @@ export default class Branch {
         const release = releaseResponse.data;
 
         try {
-            await this.octokit.git.updateRef({
+            await this.octokit.rest.git.updateRef({
                 owner: this.repo.ownerUsername,
                 repo: this.repo.name,
                 ref: `heads/${this.name}`,
@@ -165,7 +156,7 @@ export default class Branch {
             await this.refresh();
         }
         catch(error) {
-            await this.octokit.repos.deleteRelease({
+            await this.octokit.rest.repos.deleteRelease({
                 owner: this.repo.ownerUsername,
                 repo: this.repo.name,
                 release_id: release.id,
