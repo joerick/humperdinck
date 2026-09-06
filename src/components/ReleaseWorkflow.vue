@@ -1,129 +1,87 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { Branch, Commit, Repo } from '@/model';
-import type { ReleaseFilePreview } from '@/model/Branch';
-import Version from '@/model/Version';
+import type { Branch, Commit } from '@/model';
+import { nextVersion, type ReleaseConfig } from '@/model/ReleaseConfig';
+import type { ChangelogPreview, ReleasePlan, ReleaseTag } from '@/model/Branch';
 
 const props = defineProps<{
-  repo: Repo;
   branch: Branch;
-  commitCount: number;
+  config: ReleaseConfig;
+  currentRelease: ReleaseTag;
 }>();
 
 const emit = defineEmits<{
   released: [];
 }>();
 
-const currentVersion = ref<string | null>(null);
-const newVersion = ref('');
-const changelog = ref('');
-const versionFilesText = ref('');
-const savedVersionFilesText = ref('');
-const filePreviews = ref<ReleaseFilePreview[] | null>(null);
+type Increment = 'major' | 'minor' | 'patch' | 'custom';
+
+const increment = ref<Increment>('patch');
+const customVersion = ref('');
+const notes = ref('');
+const changelog = ref<ChangelogPreview | null>(null);
+const plan = ref<ReleasePlan | null>(null);
 const draftCommit = ref<Commit | null>(null);
 const publishConfirmed = ref(false);
 const publishedUrl = ref<string | null>(null);
 const busy = ref(false);
 const error = ref<string | null>(null);
-const settingsMessage = ref<string | null>(null);
 
-const canPreview = computed(() => (
-  props.repo.isEnabled &&
-  currentVersion.value !== null &&
-  versionFilesText.value === savedVersionFilesText.value &&
-  newVersion.value.length > 0 &&
-  Version.parse(newVersion.value) !== null &&
-  newVersion.value !== currentVersion.value
-));
+const newVersion = computed(() => {
+  if (increment.value === 'custom') return customVersion.value.trim();
+  const incrementedVersion = nextVersion(props.currentRelease.version, increment.value);
+  return props.currentRelease.tag.replace(props.currentRelease.version, incrementedVersion);
+});
 
-const previewIsValid = computed(() => (
-  filePreviews.value !== null &&
-  filePreviews.value.every(file => file.currentVersionFound)
+const planIsValid = computed(() => (
+  plan.value !== null && plan.value.files.every(file => file.versionFound !== false)
 ));
-const canCreateDraft = computed(() => (
-  previewIsValid.value && changelog.value.trim().length > 0
-));
-
-function suggestedNextVersion(version: string): string {
-  const parsed = Version.parse(version);
-  if (!parsed) return '';
-  if (parsed.patch === undefined) {
-    parsed.minor += 1;
-  } else {
-    parsed.patch += 1;
-  }
-  parsed.postamble = '';
-  return Version.render(parsed);
-}
 
 async function load(): Promise<void> {
-  versionFilesText.value = (
-    props.repo.repoSettings?.filesContainingVersionNumbersToUpdate ?? []
-  ).join('\n');
-  savedVersionFilesText.value = versionFilesText.value;
-  filePreviews.value = null;
-  draftCommit.value = null;
-  publishedUrl.value = null;
+  resetDraft();
+  notes.value = '';
   error.value = null;
-
   try {
-    const version = await props.branch.currentVersion();
-    currentVersion.value = version.name;
-    newVersion.value = suggestedNextVersion(version.name);
+    changelog.value = await props.branch.changelogPreview(props.config);
   } catch (caught) {
-    currentVersion.value = null;
+    changelog.value = null;
     error.value = messageFor(caught);
   }
 }
 
-async function saveSettings(): Promise<void> {
-  await run(async () => {
-    const filesContainingVersionNumbersToUpdate = versionFilesText.value
-      .split('\n')
-      .map(path => path.trim())
-      .filter(Boolean);
-    await props.repo.updateSettings({ filesContainingVersionNumbersToUpdate });
-    savedVersionFilesText.value = versionFilesText.value;
-    settingsMessage.value = 'Release settings saved.';
-    filePreviews.value = null;
-  });
-}
-
-async function disableWorkflow(): Promise<void> {
-  await run(async () => {
-    await props.repo.disableReleaseWorkflow();
-    settingsMessage.value = 'Release workflow disabled for this repository.';
-    filePreviews.value = null;
-  });
+function resetDraft(): void {
+  plan.value = null;
+  draftCommit.value = null;
+  publishConfirmed.value = false;
+  publishedUrl.value = null;
 }
 
 async function previewRelease(): Promise<void> {
   await run(async () => {
-    filePreviews.value = await props.branch.previewRelease(newVersion.value);
+    plan.value = await props.branch.planRelease(props.config, newVersion.value, notes.value);
     draftCommit.value = null;
     publishConfirmed.value = false;
   });
 }
 
-async function createDraftCommit(): Promise<void> {
+async function createDraft(): Promise<void> {
+  if (!plan.value) return;
   await run(async () => {
-    draftCommit.value = await props.branch.draftReleaseCommit(newVersion.value);
+    draftCommit.value = await props.branch.createDraftCommit(plan.value!);
   });
 }
 
-async function publishRelease(): Promise<void> {
-  if (!draftCommit.value) return;
+async function publish(): Promise<void> {
+  if (!plan.value || !draftCommit.value) return;
   await run(async () => {
-    const release = await props.branch.release(newVersion.value, changelog.value, draftCommit.value!);
+    const release = await props.branch.publishRelease(plan.value!, draftCommit.value!);
     publishedUrl.value = release.html_url;
-    emit('released');
   });
 }
 
 async function run(action: () => Promise<void>): Promise<void> {
   busy.value = true;
   error.value = null;
-  settingsMessage.value = null;
   try {
     await action();
   } catch (caught) {
@@ -141,151 +99,126 @@ function shortSha(sha: string): string {
   return sha.slice(0, 7);
 }
 
-watch(() => props.branch, () => load().catch(console.error), { immediate: true });
-watch(newVersion, () => {
-  filePreviews.value = null;
-  draftCommit.value = null;
-  publishConfirmed.value = false;
-});
+watch(
+  [() => props.branch, () => props.config, () => props.currentRelease],
+  () => load().catch(console.error),
+  { immediate: true },
+);
+watch([increment, customVersion, notes], resetDraft);
 </script>
 
 <template>
   <section class="release-workflow">
     <header>
-      <p class="eyebrow">Release workflow</p>
-      <h3>Prepare a GitHub release</h3>
-      <p class="intro">
-        Work through each step explicitly. Previewing is read-only; GitHub is only
-        changed when you create the draft commit or publish the release.
-      </p>
+      <p class="eyebrow">Create release</p>
+      <h3>Release from {{ branch.name }}</h3>
+      <p>Preview the exact repository changes, create a reviewable commit, then publish.</p>
     </header>
 
     <div class="step">
       <div class="step-number">1</div>
       <div class="step-content">
-        <h4>Configure version files</h4>
-        <p class="muted">
-          One repository-relative path per line. The first occurrence of the current
-          version in each file will be replaced in the draft commit.
-        </p>
-        <textarea
-          v-model="versionFilesText"
-          rows="4"
-          placeholder="package.json&#10;src/version.ts"
+        <h4>Choose the next version</h4>
+        <p class="muted">The latest release on this branch is <strong>{{ currentRelease.tag }}</strong>.</p>
+        <div class="increments">
+          <label v-for="choice in (['major', 'minor', 'patch', 'custom'] as const)" :key="choice">
+            <input v-model="increment" type="radio" :value="choice" :disabled="busy" />
+            {{ choice }}
+          </label>
+        </div>
+        <input
+          v-if="increment === 'custom'"
+          v-model="customVersion"
+          type="text"
+          placeholder="v2.0.0-rc.1"
           :disabled="busy"
         />
-        <div class="actions">
-          <button type="button" :disabled="busy" @click="saveSettings">
-            {{ repo.isEnabled ? 'Save settings' : 'Enable release workflow' }}
-          </button>
-          <button
-            v-if="repo.isEnabled"
-            type="button"
-            class="button-secondary"
-            :disabled="busy"
-            @click="disableWorkflow"
-          >
-            Disable
-          </button>
-        </div>
-        <p v-if="settingsMessage" class="message">{{ settingsMessage }}</p>
+        <p class="next-version">New version: <strong>{{ newVersion || 'Enter a version' }}</strong></p>
       </div>
     </div>
 
-    <div class="step" :class="{ disabled: !repo.isEnabled }">
+    <div class="step" :class="{ disabled: !changelog }">
       <div class="step-number">2</div>
       <div class="step-content">
-        <h4>Preview the release</h4>
-        <dl class="facts">
-          <div>
-            <dt>Current version</dt>
-            <dd>{{ currentVersion ?? 'Not detected' }}</dd>
+        <h4>Write the release notes</h4>
+        <p class="muted">
+          This entry will be written to <code>{{ config.changelog.path }}</code> and used as the GitHub release description.
+        </p>
+        <div v-if="changelog" class="changelog-editor">
+          <pre>{{ changelog.beforeMarker }}</pre>
+          <div v-if="changelog.marker.order === 'newest-first'" class="marker">{{ changelog.marker.source }}</div>
+          <div class="editable-entry">
+            <strong>{{ '#'.repeat(changelog.marker.heading) }} {{ newVersion }}</strong>
+            <textarea
+              v-model="notes"
+              rows="8"
+              placeholder="Describe the changes in Markdown…"
+              :disabled="busy"
+            />
           </div>
-          <div>
-            <dt>Branch</dt>
-            <dd>{{ branch.name }}</dd>
-          </div>
-          <div>
-            <dt>Unreleased commits</dt>
-            <dd>{{ commitCount }}</dd>
-          </div>
-        </dl>
-        <label>
-          New version
-          <input v-model.trim="newVersion" type="text" placeholder="v1.2.3" :disabled="busy" />
-        </label>
-        <label>
-          Changelog
-          <textarea
-            v-model="changelog"
-            rows="6"
-            placeholder="What changed in this release?"
-            :disabled="busy"
-          />
-        </label>
-        <button
-          type="button"
-          :disabled="!canPreview || busy"
-          @click="previewRelease"
-        >
-          Preview file changes
-        </button>
+          <div v-if="changelog.marker.order === 'newest-last'" class="marker">{{ changelog.marker.source }}</div>
+          <pre>{{ changelog.afterMarker }}</pre>
+        </div>
+      </div>
+    </div>
 
-        <ul v-if="filePreviews" class="file-previews">
-          <li v-if="filePreviews.length === 0">No version files are configured.</li>
-          <li v-for="file in filePreviews" :key="file.path">
+    <div class="step" :class="{ disabled: !notes.trim() || !newVersion }">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Preview repository changes</h4>
+        <button type="button" :disabled="!notes.trim() || !newVersion || busy" @click="previewRelease">
+          Build preview
+        </button>
+        <ul v-if="plan" class="file-list">
+          <li v-for="file in plan.files" :key="file.path">
             <code>{{ file.path }}</code>
-            <span :class="file.currentVersionFound ? 'good' : 'warning'">
-              {{ file.currentVersionFound ? 'version found' : 'current version not found' }}
+            <span v-if="file.versionFound === false" class="warning">
+              {{ file.foundVersion ? `found ${file.foundVersion}; it does not match ${currentRelease.tag}` : 'version pattern not found' }}
             </span>
+            <span v-else class="good">ready</span>
           </li>
         </ul>
       </div>
     </div>
 
-    <div class="step" :class="{ disabled: !previewIsValid }">
-      <div class="step-number">3</div>
+    <div class="step" :class="{ disabled: !planIsValid }">
+      <div class="step-number">4</div>
       <div class="step-content">
-        <h4>Create the release commit</h4>
-        <p class="muted">
-          This creates Git blobs, a tree, and a commit, but does not move the branch yet.
-        </p>
-        <button
-          type="button"
-          :disabled="!canCreateDraft || busy || draftCommit !== null"
-          @click="createDraftCommit"
-        >
+        <h4>Create a reviewable draft commit</h4>
+        <p class="muted">The commit is created without moving {{ branch.name }}.</p>
+        <button type="button" :disabled="!planIsValid || busy || draftCommit !== null" @click="createDraft">
           Create draft commit
         </button>
         <p v-if="draftCommit" class="message good">
-          Draft commit created: <code>{{ shortSha(draftCommit.sha) }}</code>
+          Draft <code>{{ shortSha(draftCommit.sha) }}</code> is ready.
+          <a :href="branch.draftDiffUrl(draftCommit)" target="_blank" rel="noreferrer">Review the diff on GitHub</a>
         </p>
       </div>
     </div>
 
-    <div class="step" :class="{ disabled: draftCommit === null }">
-      <div class="step-number">4</div>
+    <div class="step" :class="{ disabled: !draftCommit }">
+      <div class="step-number">5</div>
       <div class="step-content">
-        <h4>Publish</h4>
+        <h4>Publish the release</h4>
         <p class="muted">
-          Publishing creates the GitHub release and tag, then advances
-          <strong>{{ branch.name }}</strong> to the draft commit.
+          This advances <strong>{{ branch.name }}</strong>, creates tag <strong>{{ newVersion }}</strong>,
+          and publishes the GitHub release.
         </p>
         <label class="confirmation">
           <input v-model="publishConfirmed" type="checkbox" :disabled="busy || !draftCommit" />
-          I understand this writes to GitHub and moves the branch.
+          I have reviewed the diff and want to publish this release.
         </label>
         <button
           type="button"
           class="button-primary"
           :disabled="!draftCommit || !publishConfirmed || busy || publishedUrl !== null"
-          @click="publishRelease"
+          @click="publish"
         >
           Publish {{ newVersion || 'release' }}
         </button>
         <p v-if="publishedUrl" class="message good">
-          Release published successfully.
-          <a :href="publishedUrl" target="_blank" rel="noreferrer">View on GitHub</a>
+          Release published. <a :href="publishedUrl" target="_blank" rel="noreferrer">View it on GitHub</a>
+          <button type="button" class="button-inline" @click="emit('released')">Refresh release state</button>
         </p>
       </div>
     </div>
@@ -295,59 +228,36 @@ watch(newVersion, () => {
 </template>
 
 <style lang="scss" scoped>
-.release-workflow {
-  max-width: 780px;
-  margin: 32px auto;
-  text-align: left;
-  border: 1px solid #d7dce2;
-  border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 12px 32px rgb(24 39 75 / 8%);
-  overflow: hidden;
-}
-
-header {
-  padding: 28px 32px;
-  color: #fff;
-  background: linear-gradient(135deg, #28384d, #405e7c);
-}
-
-header h3 { margin: 4px 0 8px; font-size: 1.6rem; }
+.release-workflow { max-width: 850px; margin: 30px auto; text-align: left; border: 1px solid #d7dce2; border-radius: 16px; background: #fff; box-shadow: 0 12px 32px rgb(24 39 75 / 8%); overflow: hidden; }
+header { padding: 28px 32px; color: #fff; background: linear-gradient(135deg, #28384d, #405e7c); }
+header h3 { margin: 4px 0 8px; font-size: 1.55rem; }
+header p:last-child { margin-bottom: 0; color: #dce8f3; }
 .eyebrow { margin: 0; color: #a9d5ff; font-size: .75rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-.intro, .muted { color: #657081; }
-header .intro { margin: 0; color: #dce8f3; }
-
 .step { display: grid; grid-template-columns: 42px 1fr; gap: 16px; padding: 26px 32px; border-top: 1px solid #e9edf1; }
 .step.disabled { opacity: .55; }
 .step-number { display: grid; place-items: center; width: 34px; height: 34px; color: #fff; font-weight: 800; border-radius: 50%; background: #365f82; }
 .step-content h4 { margin: 4px 0 6px; font-size: 1.05rem; }
-.muted { margin: 0 0 16px; font-size: .92rem; }
-
-label { display: grid; gap: 7px; margin: 16px 0; font-weight: 700; }
+.muted { margin: 0 0 16px; color: #657081; font-size: .92rem; }
+.increments { display: flex; flex-wrap: wrap; gap: 8px; }
+.increments label { padding: 8px 12px; border: 1px solid #c8d0d8; border-radius: 999px; text-transform: capitalize; }
+.next-version { font-size: 1.05rem; }
 input[type='text'], textarea { width: 100%; padding: 11px 12px; color: #273444; font: inherit; border: 1px solid #b9c3ce; border-radius: 8px; resize: vertical; }
 input:focus, textarea:focus { outline: 3px solid rgb(55 132 190 / 20%); border-color: #3784be; }
-
+.changelog-editor { overflow: hidden; border: 1px solid #cdd5dd; border-radius: 10px; background: #f6f8fa; }
+.changelog-editor pre { max-height: 180px; overflow: auto; margin: 0; padding: 15px; color: #66717e; white-space: pre-wrap; }
+.marker { padding: 8px 15px; color: #587087; font: .78rem ui-monospace, monospace; border-block: 1px dashed #bac7d2; background: #edf3f7; }
+.editable-entry { display: grid; gap: 10px; padding: 18px; background: #fff; }
+.editable-entry strong { font: 700 1rem ui-monospace, monospace; }
 button { padding: 10px 15px; color: #fff; font: inherit; font-weight: 750; border: 0; border-radius: 8px; background: #365f82; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
-.button-secondary { color: #365f82; background: #e9f0f6; }
 .button-primary { background: #137a54; }
-.actions { display: flex; gap: 10px; }
-
-.facts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
-.facts div { padding: 12px; border-radius: 8px; background: #f3f6f9; }
-.facts dt { color: #697687; font-size: .72rem; font-weight: 800; text-transform: uppercase; }
-.facts dd { margin: 5px 0 0; font-weight: 750; }
-.file-previews { padding: 0; list-style: none; }
-.file-previews li { display: flex; justify-content: space-between; gap: 16px; padding: 9px 0; border-bottom: 1px solid #edf0f3; }
-.confirmation { display: flex; grid-template-columns: auto 1fr; align-items: center; font-weight: 500; }
-.message { margin-bottom: 0; }
+.button-inline { margin-left: 10px; padding: 5px 8px; color: #087747; background: #dff5ea; }
+.file-list { padding: 0; list-style: none; }
+.file-list li { display: flex; justify-content: space-between; gap: 15px; padding: 9px 0; border-bottom: 1px solid #edf0f3; }
+.confirmation { display: flex; align-items: center; gap: 8px; margin: 16px 0; }
+.message { margin-bottom: 0; padding: 12px; border-radius: 8px; }
 .good { color: #087747; }
 .warning, .error { color: #a3421b; }
 .error { margin: 0 32px 28px 90px; padding: 12px; border-radius: 8px; background: #fff0e9; }
-
-@media (max-width: 700px) {
-  .step { padding: 22px 18px; }
-  .facts { grid-template-columns: 1fr; }
-  .file-previews li { align-items: flex-start; flex-direction: column; }
-}
+@media (max-width: 720px) { .step { padding: 22px 18px; } .file-list li { align-items: flex-start; flex-direction: column; } }
 </style>

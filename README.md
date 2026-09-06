@@ -2,6 +2,37 @@
 
 Vue 3 and Firebase application for inspecting repository release state.
 
+## Repository configuration
+
+Release settings are branch-specific and live in `.humperdinck.yaml` on the
+branch being released. They can be created from the repository Settings screen.
+
+```yaml
+version: 1
+tagPattern: ^v(?<version>\d+\.\d+\.\d+)$
+versionFiles:
+  - path: package.json
+    pattern: '"version":\s*"(?<version>[^"]+)"'
+  - path: docs/install.md
+    pattern: 'humperdinck@(?<version>\d+\.\d+\.\d+)'
+changelog:
+  path: CHANGELOG.md
+```
+
+A version-file pattern can match only the version, or use a named `version`
+capture to preserve surrounding text. Only the first match in each file is
+replaced.
+
+The configured Markdown changelog must contain an insertion marker:
+
+```markdown
+<!-- humperdinck: releases order=newest-first heading=2 -->
+```
+
+`order` can be `newest-first` or `newest-last`, and `heading` can be from 1 to
+6. Humperdinck leaves the marker in place and inserts each new version entry on
+the corresponding side of it.
+
 ## Requirements
 
 - Node.js 22

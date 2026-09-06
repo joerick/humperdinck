@@ -5,6 +5,14 @@ import { cacheMethod } from '@/util-cache';
 
 export type CommitStatus = 'none'|'pending'|'success'|'failure'
 
+export interface CheckStatusSummary {
+    status: CommitStatus;
+    total: number;
+    passed: number;
+    pending: number;
+    failed: number;
+}
+
 export interface GithubCommit {
     sha: string;
     commit: {
@@ -24,22 +32,38 @@ export default class Commit {
     get root() { return new RepoRootFile(this, this.repo, this.octokit) }
 
     async getStatus(): Promise<CommitStatus> {
-        const response = await this.octokit.rest.repos.getCombinedStatusForRef({
+        return (await this.getCheckStatus()).status;
+    }
+
+    async getCheckStatus(): Promise<CheckStatusSummary> {
+        const request = {
             ref: this.sha,
             repo: this.repo.name,
             owner: this.repo.ownerUsername,
-        })
-        
-        if (response.data.statuses.length == 0) {
-            return 'none';
-        }
+        };
+        const [statusResponse, checksResponse] = await Promise.all([
+            this.octokit.rest.repos.getCombinedStatusForRef(request),
+            this.octokit.rest.checks.listForRef(request),
+        ]);
 
-        const status = response.data.state;
-
-        if (status == 'failure' || status == 'success' || status == 'pending') {
-            return status;
-        } else {
-            throw new Error('Unknown commit status: '+status);
-        }
+        const legacyStates = statusResponse.data.statuses.map(status => status.state);
+        const checkStates: Array<'pending' | 'success' | 'failure'> = checksResponse.data.check_runs.map(check => {
+            if (check.status !== 'completed') return 'pending';
+            return check.conclusion === 'success' || check.conclusion === 'neutral' || check.conclusion === 'skipped'
+                ? 'success'
+                : 'failure';
+        });
+        const states = [...legacyStates, ...checkStates];
+        const failed = states.filter(state => state === 'failure' || state === 'error').length;
+        const pending = states.filter(state => state === 'pending').length;
+        const passed = states.length - failed - pending;
+        const status: CommitStatus = states.length === 0
+            ? 'none'
+            : failed > 0
+                ? 'failure'
+                : pending > 0
+                    ? 'pending'
+                    : 'success';
+        return { status, total: states.length, passed, pending, failed };
     }
 }

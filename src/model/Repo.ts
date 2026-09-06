@@ -1,46 +1,12 @@
 import { Octokit, type RestEndpointMethodTypes } from '@octokit/rest';
-import { deleteDoc, doc, getDoc, setDoc, type DocumentReference } from 'firebase/firestore';
-import { db } from '@/firebase';
 import Branch from './Branch';
 import { asyncGeneratorToList } from '@/util';
 import { cacheMethod } from '@/util-cache';
 
-export interface RepoSettings {
-    // changelogPath?: string,
-    // changelogNewestFirst: boolean,
-    filesContainingVersionNumbersToUpdate: string[],
-}
-
 type GithubRepository = RestEndpointMethodTypes['repos']['get']['response']['data'];
 
 export default class Repo {
-    repoSettings: RepoSettings|null = null;
-    repoSettingsRef: DocumentReference;
-
-    constructor (public githubObj: GithubRepository, readonly octokit: Octokit) {
-        this.repoSettingsRef = doc(db, 'repos', String(githubObj.id));
-    }
-
-    async init() {
-        const snapshot = await getDoc(this.repoSettingsRef);
-        this.repoSettings = snapshot.exists()
-            ? snapshot.data() as RepoSettings
-            : null;
-    }
-
-    get isEnabled() {
-        return this.repoSettings !== null;
-    }
-
-    async updateSettings(settings: RepoSettings) {
-        await setDoc(this.repoSettingsRef, settings);
-        this.repoSettings = settings;
-    }
-
-    async disableReleaseWorkflow() {
-        await deleteDoc(this.repoSettingsRef);
-        this.repoSettings = null;
-    }
+    constructor (public githubObj: GithubRepository, readonly octokit: Octokit) {}
 
     get ownerUsername() { return this.githubObj.owner.login }
     get name() { return this.githubObj.name }
@@ -59,12 +25,13 @@ export default class Repo {
     }
     @cacheMethod({ttl: 180})
     async branchNames() {
-        const branchResponse = await this.octokit.rest.repos.listBranches({
+        const branches = await this.octokit.paginate(this.octokit.rest.repos.listBranches, {
             owner: this.ownerUsername,
             repo: this.name,
+            per_page: 100,
         })
 
-        return branchResponse.data.map(b => b.name);
+        return branches.map(branch => branch.name);
     }
 
     async *tagsGenerator() {

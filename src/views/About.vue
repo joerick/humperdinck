@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import RepoList from '../components/RepoList.vue';
 import type { User } from '@/model';
 
 defineProps<{
@@ -9,7 +8,12 @@ defineProps<{
 
 <template>
   <div class="about">
-    <h1>This is an about page</h1>
-    <RepoList :user="user" />
+    <h1>About Humperdinck</h1>
+    <p>Branch-aware release preparation for GitHub repositories.</p>
   </div>
 </template>
+
+<style scoped>
+.about { max-width: 650px; margin: 80px auto; padding: 0 24px; }
+.about p { color: #657081; }
+</style>

@@ -42,5 +42,10 @@ export default createRouter({
         name: 'repo-branch',
         component: Repo
     },
+    {
+        path: '/:owner/:repoName/branches/:branch/settings',
+        name: 'repo-settings',
+        component: Repo,
+    },
   ],
 });
