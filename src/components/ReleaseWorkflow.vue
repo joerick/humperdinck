@@ -246,7 +246,7 @@ input:focus, textarea:focus { outline: 3px solid rgb(55 132 190 / 20%); border-c
 .changelog-editor { overflow: hidden; border: 1px solid #cdd5dd; border-radius: 10px; background: #f6f8fa; }
 .changelog-editor pre { max-height: 180px; overflow: auto; margin: 0; padding: 15px; color: #66717e; white-space: pre-wrap; }
 .marker { padding: 8px 15px; color: #587087; font: .78rem ui-monospace, monospace; border-block: 1px dashed #bac7d2; background: #edf3f7; }
-.editable-entry { display: grid; gap: 10px; padding: 18px; background: #fff; }
+.editable-entry { display: grid; gap: 10px; padding: 15px; background: #fff; }
 .editable-entry strong { font: 700 1rem ui-monospace, monospace; }
 button { padding: 10px 15px; color: #fff; font: inherit; font-weight: 750; border: 0; border-radius: 8px; background: #365f82; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
