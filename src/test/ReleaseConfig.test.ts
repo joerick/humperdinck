@@ -14,7 +14,7 @@ const config: ReleaseConfig = {
   version: 1,
   tagPattern: '^v(?<version>\\d+\\.\\d+\\.\\d+)$',
   versionFiles: [
-    { path: 'package.json', pattern: '"version":\\s*"(?<version>[^"]+)"' },
+    { path: 'package.json', find: '"version": "#"' },
   ],
   changelog: { path: 'CHANGELOG.md' },
 };
@@ -29,13 +29,18 @@ describe('release configuration', () => {
     expect(versionFromTag('release-2.4.1', config.tagPattern)).toBeNull();
   });
 
-  test('replaces only the named version group', () => {
+  test('replaces a version in an optional find template', () => {
     const source = '{\n  "name": "demo",\n  "version": "1.2.3"\n}\n';
-    expect(replaceVersion(source, config.versionFiles[0]!.pattern, '1.3.0')).toStrictEqual({
+    expect(replaceVersion(source, config.versionFiles[0]!.find, '1.2.3', '1.3.0')).toStrictEqual({
       contents: '{\n  "name": "demo",\n  "version": "1.3.0"\n}\n',
       found: true,
       previousVersion: '1.2.3',
     });
+  });
+
+  test('finds the bare version when no template is configured', () => {
+    expect(replaceVersion('version = 1.2.3', undefined, '1.2.3', '1.3.0').contents)
+      .toBe('version = 1.3.0');
   });
 
   test('increments semantic versions', () => {

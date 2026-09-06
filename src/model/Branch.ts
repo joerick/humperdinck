@@ -225,17 +225,13 @@ export default class Branch {
 
         for (const versionFile of config.versionFiles) {
             const before = await this.fileContents(versionFile.path);
-            const initialMatch = replaceVersion(before, versionFile.pattern, newVersion);
-            const replacementVersion = initialMatch.previousVersion === currentRelease.tag
-                ? newTag
-                : newVersion;
-            const result = replacementVersion === newVersion
-                ? initialMatch
-                : replaceVersion(before, versionFile.pattern, replacementVersion);
-            const versionFound = result.found && (
-                result.previousVersion === currentRelease.version ||
-                result.previousVersion === currentRelease.tag
+            const result = replaceVersion(
+                before,
+                versionFile.find,
+                currentRelease.version,
+                newVersion,
             );
+            const versionFound = result.found;
             files.set(versionFile.path, {
                 path: versionFile.path,
                 before,

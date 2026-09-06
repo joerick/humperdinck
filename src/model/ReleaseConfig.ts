@@ -7,7 +7,7 @@ export const CHANGELOG_MARKER_EXAMPLE = '<!-- humperdinck: releases order=newest
 
 export interface VersionFileConfig {
     path: string;
-    pattern: string;
+    find?: string;
 }
 
 export interface ReleaseConfig {
@@ -70,11 +70,14 @@ export function parseReleaseConfig(source: string): ReleaseConfig {
         if (typeof file.path !== 'string' || !file.path) {
             throw new Error(`versionFiles[${index}].path must be a non-empty string.`);
         }
-        if (typeof file.pattern !== 'string' || !file.pattern) {
-            throw new Error(`versionFiles[${index}].pattern must be a non-empty regular expression string.`);
+        if (file.find !== undefined && typeof file.find !== 'string') {
+            throw new Error(`versionFiles[${index}].find must be a string.`);
         }
-        compilePattern(file.pattern, `versionFiles[${index}].pattern`);
-        return { path: file.path, pattern: file.pattern };
+        const find = typeof file.find === 'string' ? file.find.trim() : '';
+        if (find && !find.includes('#')) {
+            throw new Error(`versionFiles[${index}].find must contain # where the version appears.`);
+        }
+        return { path: file.path, ...(find ? { find } : {}) };
     });
     if (new Set(versionFiles.map(file => file.path)).size !== versionFiles.length) {
         throw new Error('Each versionFiles path must be unique.');
@@ -137,23 +140,25 @@ export function nextVersion(current: string, increment: 'major' | 'minor' | 'pat
     return Version.render(parsed);
 }
 
-export function replaceVersion(source: string, pattern: string, newVersion: string): VersionReplacement {
-    const regex = compilePattern(pattern);
-    const match = regex.exec(source);
-    if (!match) return { contents: source, found: false, previousVersion: null };
+export function expandVersionFind(find: string | undefined, version: string): string {
+    return find?.trim() ? find.replaceAll('#', version) : version;
+}
 
-    const previousVersion = match.groups?.version ?? match[0];
-    const capturedVersionIndex = match.groups?.version
-        ? match[0].lastIndexOf(previousVersion)
-        : -1;
-    const replacement = capturedVersionIndex >= 0
-        ? match[0].slice(0, capturedVersionIndex) + newVersion + match[0].slice(capturedVersionIndex + previousVersion.length)
-        : newVersion;
-    const index = match.index;
+export function replaceVersion(
+    source: string,
+    find: string | undefined,
+    currentVersion: string,
+    newVersion: string,
+): VersionReplacement {
+    const target = expandVersionFind(find, currentVersion);
+    const index = source.indexOf(target);
+    if (index < 0) return { contents: source, found: false, previousVersion: null };
+
+    const replacement = expandVersionFind(find, newVersion);
     return {
-        contents: source.slice(0, index) + replacement + source.slice(index + match[0].length),
+        contents: source.slice(0, index) + replacement + source.slice(index + target.length),
         found: true,
-        previousVersion,
+        previousVersion: currentVersion,
     };
 }
 

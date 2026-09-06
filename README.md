@@ -12,16 +12,15 @@ version: 1
 tagPattern: v(?<version>\d.*)
 versionFiles:
   - path: package.json
-    pattern: '"version":\s*"(?<version>[^"]+)"'
+    find: '"version": "#"'
   - path: docs/install.md
-    pattern: 'humperdinck@(?<version>\d+\.\d+\.\d+)'
+    find: 'humperdinck@#'
 changelog:
   path: CHANGELOG.md
 ```
 
-A version-file pattern can match only the version, or use a named `version`
-capture to preserve surrounding text. Only the first match in each file is
-replaced.
+The optional `find` text uses `#` as the version placeholder. Without it,
+Humperdinck replaces the first occurrence of the current version in the file.
 
 The configured Markdown changelog must contain an insertion marker:
 

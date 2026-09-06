@@ -6,6 +6,7 @@ import {
   DEFAULT_TAG_PATTERN,
   RELEASE_CONFIG_PATH,
   emptyReleaseConfig,
+  expandVersionFind,
   parseReleaseConfig,
   renderReleaseConfig,
   type ReleaseConfig,
@@ -26,6 +27,7 @@ const error = ref<string | null>(null);
 const message = ref<string | null>(null);
 const markerStatus = ref<string | null>(null);
 const tagPatternPreset = ref<'starts-with-v' | 'any' | 'custom'>('starts-with-v');
+const versionFileStatuses = ref<Record<number, { checking?: boolean; found?: boolean; preview?: string; error?: string }>>({});
 
 const yamlPreview = computed(() => renderReleaseConfig(config.value));
 const ANY_TAG_PATTERN = '(?<version>\\d.*)';
@@ -40,6 +42,7 @@ function reset(): void {
   error.value = null;
   message.value = null;
   markerStatus.value = null;
+  versionFileStatuses.value = {};
 }
 
 function selectTagPattern(): void {
@@ -48,11 +51,29 @@ function selectTagPattern(): void {
 }
 
 function addVersionFile(): void {
-  config.value.versionFiles.push({ path: '', pattern: '(?<version>v?\\d+\\.\\d+\\.\\d+)' });
+  config.value.versionFiles.push({ path: '' });
 }
 
 function removeVersionFile(index: number): void {
   config.value.versionFiles.splice(index, 1);
+}
+
+async function validateVersionFile(index: number): Promise<void> {
+  const file = config.value.versionFiles[index];
+  if (!file?.path) return;
+  versionFileStatuses.value[index] = { checking: true };
+  try {
+    const [release, source] = await Promise.all([
+      props.branch.latestRelease(config.value),
+      props.branch.fileContents(file.path),
+    ]);
+    const preview = expandVersionFind(file.find, release.version);
+    versionFileStatuses.value[index] = { preview, found: source.includes(preview) };
+  } catch (caught) {
+    versionFileStatuses.value[index] = {
+      error: caught instanceof Error ? caught.message : String(caught),
+    };
+  }
 }
 
 async function validateChangelog(): Promise<void> {
@@ -135,7 +156,7 @@ watch([() => props.branch, () => props.initialConfig], reset, { immediate: true 
       <div class="section-heading">
         <div>
           <h4>Files containing version numbers</h4>
-          <p class="hint">Patterns replace the named <code>version</code> group, or the full match.</p>
+          <p class="hint">Optionally narrow where the current version is found using <code>#</code> as its placeholder.</p>
         </div>
         <button type="button" class="button-secondary" :disabled="busy" @click="addVersionFile">
           Add file
@@ -148,16 +169,27 @@ watch([() => props.branch, () => props.initialConfig], reset, { immediate: true 
       <div v-for="(file, index) in config.versionFiles" :key="index" class="version-file">
         <label>
           File path
-          <input v-model.trim="file.path" type="text" placeholder="package.json" :disabled="busy" />
+          <input v-model.trim="file.path" type="text" placeholder="package.json" :disabled="busy" @blur="validateVersionFile(index)" />
         </label>
         <label>
-          Version pattern
+          Find (optional)
           <input
-            v-model="file.pattern"
+            v-model="file.find"
             type="text"
-            placeholder="&quot;version&quot;:\s*&quot;(?&lt;version&gt;[^&quot;]+)&quot;"
+            placeholder="__version__ = &quot;#&quot;"
             :disabled="busy"
+            @blur="validateVersionFile(index)"
           />
+          <small v-if="versionFileStatuses[index]?.checking" class="file-status">Checking file…</small>
+          <small v-else-if="versionFileStatuses[index]?.found" class="file-status good">
+            ✓ Found <code>{{ versionFileStatuses[index]?.preview }}</code> at branch head
+          </small>
+          <small v-else-if="versionFileStatuses[index]?.preview" class="file-status bad">
+            × <code>{{ versionFileStatuses[index]?.preview }}</code> was not found at branch head
+          </small>
+          <small v-else-if="versionFileStatuses[index]?.error" class="file-status bad">
+            × {{ versionFileStatuses[index]?.error }}
+          </small>
         </label>
         <button type="button" class="remove" :disabled="busy" @click="removeVersionFile(index)">
           Remove
@@ -214,6 +246,9 @@ input:focus { outline: 3px solid rgb(55 132 190 / 20%); border-color: #3784be; }
 .hint { margin: 8px 0 0; color: #657081; font-size: .9rem; }
 .version-file { display: grid; grid-template-columns: 1fr 1.5fr auto; gap: 12px; align-items: end; margin-top: 16px; padding: 16px; border-radius: 10px; background: #f3f6f9; }
 .empty-row { margin-top: 16px; padding: 18px; color: #657081; border: 1px dashed #bdc7d2; border-radius: 10px; }
+.file-status { min-height: 1.2em; color: #657081; font-weight: 600; }
+.file-status.good { color: #087747; background: none; }
+.file-status.bad { color: #a3421b; }
 button { padding: 10px 15px; color: #fff; font: inherit; font-weight: 750; border: 0; border-radius: 8px; background: #365f82; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .button-secondary { color: #365f82; background: #e9f0f6; }
