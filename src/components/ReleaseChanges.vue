@@ -42,7 +42,10 @@ function shortSha(sha: string): string {
       >
         <div class="icon" aria-hidden="true">
           <svg v-if="item.kind === 'pull-request'" viewBox="0 0 16 16">
-            <path d="M5 3.25a2.25 2.25 0 1 1-3.5 1.866v5.768a2.25 2.25 0 1 1 1.5 0V5.116A2.25 2.25 0 0 1 5 3.25Zm7.5 7.634V6.5A2.5 2.5 0 0 0 10 4H8.56l1.22-1.22a.75.75 0 1 0-1.06-1.06l-2.5 2.5a.75.75 0 0 0 0 1.06l2.5 2.5a.75.75 0 1 0 1.06-1.06L8.56 5.5H10a1 1 0 0 1 1 1v4.384a2.25 2.25 0 1 0 1.5 0Z" />
+            <circle cx="4" cy="3" r="1.5" />
+            <circle cx="4" cy="13" r="1.5" />
+            <circle cx="12" cy="13" r="1.5" />
+            <path d="M4 4.5v7M7 3h1a4 4 0 0 1 4 4v4.5M8.5 1.5 7 3l1.5 1.5" />
           </svg>
           <svg v-else viewBox="0 0 16 16">
             <path d="M5.25 8a2.75 2.75 0 1 1 5.5 0 2.75 2.75 0 0 1-5.5 0ZM8 6.75a1.25 1.25 0 1 0 0 2.5 1.25 1.25 0 0 0 0-2.5ZM0 7.25h5.35v1.5H0Zm10.65 0H16v1.5h-5.35Z" />
@@ -92,6 +95,7 @@ header h3 { margin: 4px 0 0; }
 .icon svg { width: 17px; height: 17px; fill: currentColor; }
 .commit .icon svg { transform: rotate(90deg); }
 .pull-request .icon { color: #fff; border-color: #8250df; background: #8250df; }
+.pull-request .icon svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .item-content { min-width: 0; border: 1px solid #dfe4e9; border-radius: 10px; background: #fff; }
 .pr-content { padding: 16px; border-left: 4px solid #8250df; }
 .commit-content { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: baseline; padding: 12px 14px; }
