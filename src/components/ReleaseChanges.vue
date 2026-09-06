@@ -90,6 +90,7 @@ header h3 { margin: 4px 0 0; }
 .timeline-item:last-child::before { bottom: calc(100% - 31px); }
 .icon { z-index: 1; display: grid; width: 34px; height: 34px; place-items: center; color: #596675; border: 1px solid #cdd5dd; border-radius: 50%; background: #fff; }
 .icon svg { width: 17px; height: 17px; fill: currentColor; }
+.commit .icon svg { transform: rotate(90deg); }
 .pull-request .icon { color: #fff; border-color: #8250df; background: #8250df; }
 .item-content { min-width: 0; border: 1px solid #dfe4e9; border-radius: 10px; background: #fff; }
 .pr-content { padding: 16px; border-left: 4px solid #8250df; }
