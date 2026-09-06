@@ -1,3 +1,11 @@
+<script setup lang="ts">
+import type { User } from '../model';
+
+defineProps<{
+  user?: User | null;
+}>();
+</script>
+
 <template>
   <div class="repo-nav">
     <h3>Repos</h3>
@@ -17,14 +25,6 @@
     </div>
   </div>
 </template>
-
-<script setup lang="ts">
-import type { User } from '../model';
-
-defineProps<{
-  user?: User | null;
-}>();
-</script>
 
 <style lang="scss" scoped>
 .repo-nav {

@@ -1,18 +1,3 @@
-<template>
-  <div>
-    <div class="loading" v-if="loading">Loading…</div>
-    <div class="error" v-else-if="error">{{ error }}</div>
-    <div class="repos" v-else>
-      <router-link class="repo"
-           v-for="(repo, index) in repos"
-           :key="index"
-           :to="{name: 'repo', params: {owner: repo.ownerUsername, repoName: repo.name}}">
-        {{repo.ownerUsername}}/{{repo.name}}
-      </router-link>
-    </div>
-  </div>
-</template>
-
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import type { User } from '@/model';
@@ -47,3 +32,18 @@ function load(): void {
 
 watch(() => props.user, load, { immediate: true });
 </script>
+
+<template>
+  <div>
+    <div class="loading" v-if="loading">Loading…</div>
+    <div class="error" v-else-if="error">{{ error }}</div>
+    <div class="repos" v-else>
+      <router-link class="repo"
+           v-for="(repo, index) in repos"
+           :key="index"
+           :to="{name: 'repo', params: {owner: repo.ownerUsername, repoName: repo.name}}">
+        {{repo.ownerUsername}}/{{repo.name}}
+      </router-link>
+    </div>
+  </div>
+</template>

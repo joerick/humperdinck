@@ -1,38 +1,3 @@
-<template>
-  <div class="repo">
-    <RepoNavContainer :user="user">
-      <div v-if="repo === null">
-        {{repoLoadingStatus}}
-      </div>
-      <div v-else class="repo-content">
-        <div class="repo-summary">
-          <div>
-            <p class="eyebrow">Repository</p>
-            <h2>
-              <svg class="repo-icon" viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M2 2.75C2 1.78 2.78 1 3.75 1h8.5c.97 0 1.75.78 1.75 1.75v10.5c0 .97-.78 1.75-1.75 1.75h-8.5A1.75 1.75 0 0 1 2 13.25ZM3.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .14.11.25.25.25H5v-11Zm2.75 11h5.75c.14 0 .25-.11.25-.25V2.75a.25.25 0 0 0-.25-.25H6.5Z" />
-              </svg>
-              {{repo.ownerUsername}}/{{repo.name}}
-            </h2>
-            <p>Current branch: <strong>{{branch?.name}}</strong></p>
-          </div>
-          <div class="status" :class="`status-${status}`">
-            {{ statusLabel }}
-          </div>
-        </div>
-
-        <ReleaseWorkflow
-          v-if="branch && commits"
-          :repo="repo"
-          :branch="branch"
-          :commit-count="commits.length"
-          @released="loadRepo"
-        />
-      </div>
-    </RepoNavContainer>
-  </div>
-</template>
-
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { useRoute } from 'vue-router';
@@ -105,6 +70,41 @@ watch(
   { immediate: true },
 );
 </script>
+
+<template>
+  <div class="repo">
+    <RepoNavContainer :user="user">
+      <div v-if="repo === null">
+        {{repoLoadingStatus}}
+      </div>
+      <div v-else class="repo-content">
+        <div class="repo-summary">
+          <div>
+            <p class="eyebrow">Repository</p>
+            <h2>
+              <svg class="repo-icon" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M2 2.75C2 1.78 2.78 1 3.75 1h8.5c.97 0 1.75.78 1.75 1.75v10.5c0 .97-.78 1.75-1.75 1.75h-8.5A1.75 1.75 0 0 1 2 13.25ZM3.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .14.11.25.25.25H5v-11Zm2.75 11h5.75c.14 0 .25-.11.25-.25V2.75a.25.25 0 0 0-.25-.25H6.5Z" />
+              </svg>
+              {{repo.ownerUsername}}/{{repo.name}}
+            </h2>
+            <p>Current branch: <strong>{{branch?.name}}</strong></p>
+          </div>
+          <div class="status" :class="`status-${status}`">
+            {{ statusLabel }}
+          </div>
+        </div>
+
+        <ReleaseWorkflow
+          v-if="branch && commits"
+          :repo="repo"
+          :branch="branch"
+          :commit-count="commits.length"
+          @released="loadRepo"
+        />
+      </div>
+    </RepoNavContainer>
+  </div>
+</template>
 
 <style>
 .repo-content {

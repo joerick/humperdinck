@@ -1,3 +1,22 @@
+<script setup lang="ts">
+import { ref } from 'vue';
+import { Auth, type User } from './model';
+
+const user = ref<User | null>();
+
+Auth.addAuthStateListener(currentUser => {
+  user.value = currentUser;
+});
+
+function login(): void {
+  Auth.login().catch(console.error);
+}
+
+function logout(): void {
+  Auth.logout().catch(console.error);
+}
+</script>
+
 <template>
   <div id="app">
     <div class="nav">
@@ -24,26 +43,6 @@
     </div>
   </div>
 </template>
-
-<script setup lang="ts">
-import { ref } from 'vue';
-import { Auth, type User } from './model';
-
-const user = ref<User | null>();
-
-Auth.addAuthStateListener(currentUser => {
-  user.value = currentUser;
-});
-
-function login(): void {
-  Auth.login().catch(console.error);
-}
-
-function logout(): void {
-  Auth.logout().catch(console.error);
-}
-</script>
-
 
 <style lang="scss">
 * {

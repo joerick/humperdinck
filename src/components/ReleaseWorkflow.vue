@@ -1,148 +1,3 @@
-<template>
-  <section class="release-workflow">
-    <header>
-      <p class="eyebrow">Release workflow</p>
-      <h3>Prepare a GitHub release</h3>
-      <p class="intro">
-        Work through each step explicitly. Previewing is read-only; GitHub is only
-        changed when you create the draft commit or publish the release.
-      </p>
-    </header>
-
-    <div class="step">
-      <div class="step-number">1</div>
-      <div class="step-content">
-        <h4>Configure version files</h4>
-        <p class="muted">
-          One repository-relative path per line. The first occurrence of the current
-          version in each file will be replaced in the draft commit.
-        </p>
-        <textarea
-          v-model="versionFilesText"
-          rows="4"
-          placeholder="package.json&#10;src/version.ts"
-          :disabled="busy"
-        />
-        <div class="actions">
-          <button type="button" :disabled="busy" @click="saveSettings">
-            {{ repo.isEnabled ? 'Save settings' : 'Enable release workflow' }}
-          </button>
-          <button
-            v-if="repo.isEnabled"
-            type="button"
-            class="button-secondary"
-            :disabled="busy"
-            @click="disableWorkflow"
-          >
-            Disable
-          </button>
-        </div>
-        <p v-if="settingsMessage" class="message">{{ settingsMessage }}</p>
-      </div>
-    </div>
-
-    <div class="step" :class="{ disabled: !repo.isEnabled }">
-      <div class="step-number">2</div>
-      <div class="step-content">
-        <h4>Preview the release</h4>
-        <dl class="facts">
-          <div>
-            <dt>Current version</dt>
-            <dd>{{ currentVersion ?? 'Not detected' }}</dd>
-          </div>
-          <div>
-            <dt>Branch</dt>
-            <dd>{{ branch.name }}</dd>
-          </div>
-          <div>
-            <dt>Unreleased commits</dt>
-            <dd>{{ commitCount }}</dd>
-          </div>
-        </dl>
-        <label>
-          New version
-          <input v-model.trim="newVersion" type="text" placeholder="v1.2.3" :disabled="busy" />
-        </label>
-        <label>
-          Changelog
-          <textarea
-            v-model="changelog"
-            rows="6"
-            placeholder="What changed in this release?"
-            :disabled="busy"
-          />
-        </label>
-        <button
-          type="button"
-          :disabled="!canPreview || busy"
-          @click="previewRelease"
-        >
-          Preview file changes
-        </button>
-
-        <ul v-if="filePreviews" class="file-previews">
-          <li v-if="filePreviews.length === 0">No version files are configured.</li>
-          <li v-for="file in filePreviews" :key="file.path">
-            <code>{{ file.path }}</code>
-            <span :class="file.currentVersionFound ? 'good' : 'warning'">
-              {{ file.currentVersionFound ? 'version found' : 'current version not found' }}
-            </span>
-          </li>
-        </ul>
-      </div>
-    </div>
-
-    <div class="step" :class="{ disabled: !previewIsValid }">
-      <div class="step-number">3</div>
-      <div class="step-content">
-        <h4>Create the release commit</h4>
-        <p class="muted">
-          This creates Git blobs, a tree, and a commit, but does not move the branch yet.
-        </p>
-        <button
-          type="button"
-          :disabled="!canCreateDraft || busy || draftCommit !== null"
-          @click="createDraftCommit"
-        >
-          Create draft commit
-        </button>
-        <p v-if="draftCommit" class="message good">
-          Draft commit created: <code>{{ shortSha(draftCommit.sha) }}</code>
-        </p>
-      </div>
-    </div>
-
-    <div class="step" :class="{ disabled: draftCommit === null }">
-      <div class="step-number">4</div>
-      <div class="step-content">
-        <h4>Publish</h4>
-        <p class="muted">
-          Publishing creates the GitHub release and tag, then advances
-          <strong>{{ branch.name }}</strong> to the draft commit.
-        </p>
-        <label class="confirmation">
-          <input v-model="publishConfirmed" type="checkbox" :disabled="busy || !draftCommit" />
-          I understand this writes to GitHub and moves the branch.
-        </label>
-        <button
-          type="button"
-          class="button-primary"
-          :disabled="!draftCommit || !publishConfirmed || busy || publishedUrl !== null"
-          @click="publishRelease"
-        >
-          Publish {{ newVersion || 'release' }}
-        </button>
-        <p v-if="publishedUrl" class="message good">
-          Release published successfully.
-          <a :href="publishedUrl" target="_blank" rel="noreferrer">View on GitHub</a>
-        </p>
-      </div>
-    </div>
-
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
-  </section>
-</template>
-
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import type { Branch, Commit, Repo } from '@/model';
@@ -293,6 +148,151 @@ watch(newVersion, () => {
   publishConfirmed.value = false;
 });
 </script>
+
+<template>
+  <section class="release-workflow">
+    <header>
+      <p class="eyebrow">Release workflow</p>
+      <h3>Prepare a GitHub release</h3>
+      <p class="intro">
+        Work through each step explicitly. Previewing is read-only; GitHub is only
+        changed when you create the draft commit or publish the release.
+      </p>
+    </header>
+
+    <div class="step">
+      <div class="step-number">1</div>
+      <div class="step-content">
+        <h4>Configure version files</h4>
+        <p class="muted">
+          One repository-relative path per line. The first occurrence of the current
+          version in each file will be replaced in the draft commit.
+        </p>
+        <textarea
+          v-model="versionFilesText"
+          rows="4"
+          placeholder="package.json&#10;src/version.ts"
+          :disabled="busy"
+        />
+        <div class="actions">
+          <button type="button" :disabled="busy" @click="saveSettings">
+            {{ repo.isEnabled ? 'Save settings' : 'Enable release workflow' }}
+          </button>
+          <button
+            v-if="repo.isEnabled"
+            type="button"
+            class="button-secondary"
+            :disabled="busy"
+            @click="disableWorkflow"
+          >
+            Disable
+          </button>
+        </div>
+        <p v-if="settingsMessage" class="message">{{ settingsMessage }}</p>
+      </div>
+    </div>
+
+    <div class="step" :class="{ disabled: !repo.isEnabled }">
+      <div class="step-number">2</div>
+      <div class="step-content">
+        <h4>Preview the release</h4>
+        <dl class="facts">
+          <div>
+            <dt>Current version</dt>
+            <dd>{{ currentVersion ?? 'Not detected' }}</dd>
+          </div>
+          <div>
+            <dt>Branch</dt>
+            <dd>{{ branch.name }}</dd>
+          </div>
+          <div>
+            <dt>Unreleased commits</dt>
+            <dd>{{ commitCount }}</dd>
+          </div>
+        </dl>
+        <label>
+          New version
+          <input v-model.trim="newVersion" type="text" placeholder="v1.2.3" :disabled="busy" />
+        </label>
+        <label>
+          Changelog
+          <textarea
+            v-model="changelog"
+            rows="6"
+            placeholder="What changed in this release?"
+            :disabled="busy"
+          />
+        </label>
+        <button
+          type="button"
+          :disabled="!canPreview || busy"
+          @click="previewRelease"
+        >
+          Preview file changes
+        </button>
+
+        <ul v-if="filePreviews" class="file-previews">
+          <li v-if="filePreviews.length === 0">No version files are configured.</li>
+          <li v-for="file in filePreviews" :key="file.path">
+            <code>{{ file.path }}</code>
+            <span :class="file.currentVersionFound ? 'good' : 'warning'">
+              {{ file.currentVersionFound ? 'version found' : 'current version not found' }}
+            </span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="step" :class="{ disabled: !previewIsValid }">
+      <div class="step-number">3</div>
+      <div class="step-content">
+        <h4>Create the release commit</h4>
+        <p class="muted">
+          This creates Git blobs, a tree, and a commit, but does not move the branch yet.
+        </p>
+        <button
+          type="button"
+          :disabled="!canCreateDraft || busy || draftCommit !== null"
+          @click="createDraftCommit"
+        >
+          Create draft commit
+        </button>
+        <p v-if="draftCommit" class="message good">
+          Draft commit created: <code>{{ shortSha(draftCommit.sha) }}</code>
+        </p>
+      </div>
+    </div>
+
+    <div class="step" :class="{ disabled: draftCommit === null }">
+      <div class="step-number">4</div>
+      <div class="step-content">
+        <h4>Publish</h4>
+        <p class="muted">
+          Publishing creates the GitHub release and tag, then advances
+          <strong>{{ branch.name }}</strong> to the draft commit.
+        </p>
+        <label class="confirmation">
+          <input v-model="publishConfirmed" type="checkbox" :disabled="busy || !draftCommit" />
+          I understand this writes to GitHub and moves the branch.
+        </label>
+        <button
+          type="button"
+          class="button-primary"
+          :disabled="!draftCommit || !publishConfirmed || busy || publishedUrl !== null"
+          @click="publishRelease"
+        >
+          Publish {{ newVersion || 'release' }}
+        </button>
+        <p v-if="publishedUrl" class="message good">
+          Release published successfully.
+          <a :href="publishedUrl" target="_blank" rel="noreferrer">View on GitHub</a>
+        </p>
+      </div>
+    </div>
+
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
+  </section>
+</template>
 
 <style lang="scss" scoped>
 .release-workflow {
