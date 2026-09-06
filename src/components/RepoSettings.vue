@@ -53,6 +53,42 @@ const updatedChangelogSource = computed(() => {
   lines.splice(Math.max(0, changelogMarkerLine.value - 1), 0, renderedChangelogMarker.value);
   return lines.join('\n');
 });
+const changePreviews = computed(() => {
+  const originalYaml = props.initialConfig ? renderReleaseConfig(props.initialConfig) : '';
+  const previews = [{ path: RELEASE_CONFIG_PATH, diff: compactDiff(originalYaml, yamlPreview.value) }];
+  if (
+    changelogSource.value !== null &&
+    updatedChangelogSource.value !== null &&
+    changelogSource.value !== updatedChangelogSource.value
+  ) {
+    previews.push({
+      path: config.value.changelog.path,
+      diff: compactDiff(changelogSource.value, updatedChangelogSource.value),
+    });
+  }
+  return previews;
+});
+
+function compactDiff(before: string, after: string): string {
+  const oldLines = before.split('\n');
+  const newLines = after.split('\n');
+  let start = 0;
+  while (oldLines[start] === newLines[start] && start < oldLines.length && start < newLines.length) start += 1;
+  let oldEnd = oldLines.length - 1;
+  let newEnd = newLines.length - 1;
+  while (oldEnd >= start && newEnd >= start && oldLines[oldEnd] === newLines[newEnd]) {
+    oldEnd -= 1;
+    newEnd -= 1;
+  }
+  const contextStart = Math.max(0, start - 2);
+  const contextEndNew = Math.min(newLines.length - 1, newEnd + 2);
+  return [
+    ...oldLines.slice(contextStart, start).map(line => `  ${line}`),
+    ...oldLines.slice(start, oldEnd + 1).map(line => `- ${line}`),
+    ...newLines.slice(start, newEnd + 1).map(line => `+ ${line}`),
+    ...newLines.slice(newEnd + 1, contextEndNew + 1).map(line => `  ${line}`),
+  ].join('\n');
+}
 
 function reset(): void {
   config.value = props.initialConfig
@@ -293,9 +329,12 @@ watch([() => props.branch, () => props.initialConfig], () => {
       </div>
     </div>
 
-    <details class="yaml-preview">
-      <summary>Preview YAML</summary>
-      <pre>{{ yamlPreview }}</pre>
+    <details class="changes-preview">
+      <summary>Preview changes</summary>
+      <div v-for="preview in changePreviews" :key="preview.path" class="change-preview">
+        <strong>{{ preview.path }}</strong>
+        <pre>{{ preview.diff || '  No changes' }}</pre>
+      </div>
     </details>
 
     <div class="save-row">
@@ -337,8 +376,10 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .remove { color: #a3421b; background: #ffe9df; }
 .marker-editor { display: grid; gap: 15px; margin-top: 16px; padding: 16px; border: 1px solid #d9e1e8; border-radius: 10px; background: #f8fafc; }
 .marker-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.yaml-preview { margin: 0 32px 24px; }
-.yaml-preview summary { cursor: pointer; font-weight: 700; }
+.changes-preview { margin: 0 32px 24px; }
+.changes-preview summary { cursor: pointer; font-weight: 700; }
+.change-preview { margin-top: 14px; }
+.change-preview strong { font-family: ui-monospace, monospace; }
 pre { overflow-x: auto; padding: 15px; border-radius: 8px; background: #18222e; color: #e6edf3; }
 .save-row { padding: 22px 32px; border-top: 1px solid #e9edf1; background: #f8fafc; }
 .message { margin: 0 32px 22px; padding: 12px; border-radius: 8px; }
