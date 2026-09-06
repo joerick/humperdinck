@@ -2,11 +2,11 @@
 import { computed, ref, watch } from 'vue';
 import type { Branch } from '@/model';
 import {
-  CHANGELOG_MARKER_EXAMPLE,
   DEFAULT_TAG_PATTERN,
   RELEASE_CONFIG_PATH,
   emptyReleaseConfig,
   expandVersionFind,
+  findChangelogMarker,
   parseReleaseConfig,
   renderReleaseConfig,
   type ReleaseConfig,
@@ -28,9 +28,31 @@ const message = ref<string | null>(null);
 const markerStatus = ref<string | null>(null);
 const tagPatternPreset = ref<'starts-with-v' | 'any' | 'custom'>('starts-with-v');
 const versionFileStatuses = ref<Record<number, { checking?: boolean; found?: boolean; preview?: string; error?: string }>>({});
+const changelogSource = ref<string | null>(null);
+const changelogMarkerLine = ref(1);
+const changelogOrder = ref<'newest-first' | 'newest-last'>('newest-first');
+const changelogHeading = ref(2);
 
 const yamlPreview = computed(() => renderReleaseConfig(config.value));
 const ANY_TAG_PATTERN = '(?<version>\\d.*)';
+const existingChangelogMarker = computed(() => (
+  changelogSource.value === null ? null : findChangelogMarker(changelogSource.value)
+));
+const changelogLines = computed(() => changelogSource.value?.split('\n') ?? []);
+const renderedChangelogMarker = computed(() => (
+  `<!-- humperdinck: releases order=${changelogOrder.value} heading=${changelogHeading.value} -->`
+));
+const updatedChangelogSource = computed(() => {
+  if (changelogSource.value === null) return null;
+  const marker = existingChangelogMarker.value;
+  if (marker) {
+    return changelogSource.value.slice(0, marker.index) + renderedChangelogMarker.value +
+      changelogSource.value.slice(marker.index + marker.length);
+  }
+  const lines = [...changelogLines.value];
+  lines.splice(Math.max(0, changelogMarkerLine.value - 1), 0, renderedChangelogMarker.value);
+  return lines.join('\n');
+});
 
 function reset(): void {
   config.value = props.initialConfig
@@ -43,6 +65,10 @@ function reset(): void {
   message.value = null;
   markerStatus.value = null;
   versionFileStatuses.value = {};
+  changelogSource.value = null;
+  changelogMarkerLine.value = 1;
+  changelogOrder.value = 'newest-first';
+  changelogHeading.value = 2;
 }
 
 function selectTagPattern(): void {
@@ -78,16 +104,34 @@ async function validateVersionFile(index: number): Promise<void> {
 
 async function validateChangelog(): Promise<void> {
   await run(async () => {
-    const preview = await props.branch.changelogPreview(config.value);
-    markerStatus.value = `Marker found: ${preview.marker.order}, heading level ${preview.marker.heading}.`;
+    changelogSource.value = await props.branch.fileContents(config.value.changelog.path);
+    const marker = existingChangelogMarker.value;
+    if (marker) {
+      changelogOrder.value = marker.order;
+      changelogHeading.value = marker.heading;
+      changelogMarkerLine.value = changelogSource.value.slice(0, marker.index).split('\n').length;
+      markerStatus.value = `Marker found on line ${changelogMarkerLine.value}.`;
+    } else {
+      changelogMarkerLine.value = Math.min(2, changelogLines.value.length + 1);
+      markerStatus.value = 'No marker found. Choose where to insert it below.';
+    }
   });
 }
 
 async function save(): Promise<void> {
   await run(async () => {
     const validated = parseReleaseConfig(yamlPreview.value);
-    await props.branch.changelogPreview(validated);
-    await props.branch.saveReleaseConfig(validated);
+    if (changelogSource.value === null || updatedChangelogSource.value === null) {
+      throw new Error('Load the changelog file and configure its release marker before saving.');
+    }
+    if (!findChangelogMarker(updatedChangelogSource.value)) {
+      throw new Error('The changelog marker configuration is incomplete.');
+    }
+    const changelogChanged = updatedChangelogSource.value !== changelogSource.value;
+    await props.branch.saveReleaseConfig(validated, changelogChanged ? [{
+      path: validated.changelog.path,
+      contents: updatedChangelogSource.value,
+    }] : []);
     config.value = validated;
     message.value = `${RELEASE_CONFIG_PATH} committed to ${props.branch.name}.`;
     window.dispatchEvent(new CustomEvent('humperdinck:release-config-saved', {
@@ -114,7 +158,10 @@ async function run(action: () => Promise<void>): Promise<void> {
   }
 }
 
-watch([() => props.branch, () => props.initialConfig], reset, { immediate: true });
+watch([() => props.branch, () => props.initialConfig], () => {
+  reset();
+  validateChangelog().catch(console.error);
+}, { immediate: true });
 </script>
 
 <template>
@@ -200,16 +247,50 @@ watch([() => props.branch, () => props.initialConfig], reset, { immediate: true 
     <div class="settings-section">
       <label>
         Markdown changelog path
-        <input v-model.trim="config.changelog.path" type="text" placeholder="CHANGELOG.md" :disabled="busy" />
+        <input
+          v-model.trim="config.changelog.path"
+          type="text"
+          placeholder="CHANGELOG.md"
+          :disabled="busy"
+          @blur="validateChangelog"
+        />
       </label>
-      <p class="hint">
-        Put <code>{{ CHANGELOG_MARKER_EXAMPLE }}</code> in that file. The marker controls
-        insertion position, ordering, and the heading level used for each version.
-      </p>
       <button type="button" class="button-secondary" :disabled="busy" @click="validateChangelog">
-        Check changelog marker
+        Load changelog
       </button>
       <p v-if="markerStatus" class="message good">{{ markerStatus }}</p>
+
+      <div v-if="changelogSource !== null" class="marker-editor">
+        <div v-if="!existingChangelogMarker" class="marker-position">
+          <label>
+            Insert marker before
+            <select v-model.number="changelogMarkerLine" :disabled="busy">
+              <option v-for="(line, index) in changelogLines" :key="index" :value="index + 1">
+                Line {{ index + 1 }} — {{ line.trim() || '(blank line)' }}
+              </option>
+              <option :value="changelogLines.length + 1">End of file</option>
+            </select>
+          </label>
+        </div>
+        <div class="marker-options">
+          <label>
+            New entries
+            <select v-model="changelogOrder" :disabled="busy">
+              <option value="newest-first">Newest first</option>
+              <option value="newest-last">Newest last</option>
+            </select>
+          </label>
+          <label>
+            Version heading level
+            <select v-model.number="changelogHeading" :disabled="busy">
+              <option v-for="level in 6" :key="level" :value="level">
+                {{ '#'.repeat(level) }} Heading {{ level }}
+              </option>
+            </select>
+          </label>
+        </div>
+        <p class="hint">Marker preview: <code>{{ renderedChangelogMarker }}</code></p>
+      </div>
     </div>
 
     <details class="yaml-preview">
@@ -252,7 +333,10 @@ input:focus { outline: 3px solid rgb(55 132 190 / 20%); border-color: #3784be; }
 button { padding: 10px 15px; color: #fff; font: inherit; font-weight: 750; border: 0; border-radius: 8px; background: #365f82; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .button-secondary { color: #365f82; background: #e9f0f6; }
+.settings-section > .button-secondary { margin-top: 12px; }
 .remove { color: #a3421b; background: #ffe9df; }
+.marker-editor { display: grid; gap: 15px; margin-top: 16px; padding: 16px; border: 1px solid #d9e1e8; border-radius: 10px; background: #f8fafc; }
+.marker-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .yaml-preview { margin: 0 32px 24px; }
 .yaml-preview summary { cursor: pointer; font-weight: 700; }
 pre { overflow-x: auto; padding: 15px; border-radius: 8px; background: #18222e; color: #e6edf3; }

@@ -110,22 +110,41 @@ export default class Branch {
         }
     }
 
-    async saveReleaseConfig(config: ReleaseConfig): Promise<void> {
-        let sha: string | undefined;
-        try {
-            sha = (await this.headCommit.root.getFile(RELEASE_CONFIG_PATH)).sha;
-        } catch (error) {
-            if (!(error instanceof Error) || error.message !== 'file not found') throw error;
-        }
-
-        await this.octokit.rest.repos.createOrUpdateFileContents({
+    async saveReleaseConfig(
+        config: ReleaseConfig,
+        additionalFiles: Array<{ path: string; contents: string }> = [],
+    ): Promise<void> {
+        const files = [
+            { path: RELEASE_CONFIG_PATH, contents: renderReleaseConfig(config) },
+            ...additionalFiles,
+        ];
+        const tree = await Promise.all(files.map(async file => {
+            const blob = await this.octokit.rest.git.createBlob({
+                owner: this.repo.ownerUsername,
+                repo: this.repo.name,
+                content: Base64.encode(file.contents),
+                encoding: 'base64',
+            });
+            return { path: file.path, mode: '100644' as const, type: 'blob' as const, sha: blob.data.sha };
+        }));
+        const newTree = await this.octokit.rest.git.createTree({
             owner: this.repo.ownerUsername,
             repo: this.repo.name,
-            path: RELEASE_CONFIG_PATH,
-            branch: this.name,
+            base_tree: this.headCommit.treeSha,
+            tree,
+        });
+        const commit = await this.octokit.rest.git.createCommit({
+            owner: this.repo.ownerUsername,
+            repo: this.repo.name,
             message: 'Configure Humperdinck releases',
-            content: Base64.encode(renderReleaseConfig(config)),
-            ...(sha ? { sha } : {}),
+            tree: newTree.data.sha,
+            parents: [this.headCommit.sha],
+        });
+        await this.octokit.rest.git.updateRef({
+            owner: this.repo.ownerUsername,
+            repo: this.repo.name,
+            ref: `heads/${this.name}`,
+            sha: commit.data.sha,
         });
         await this.refresh();
     }
