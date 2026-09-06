@@ -9,7 +9,7 @@ branch being released. They can be created from the repository Settings screen.
 
 ```yaml
 version: 1
-tagPattern: ^v(?<version>\d+\.\d+\.\d+)$
+tagPattern: v(?<version>\d.*)
 versionFiles:
   - path: package.json
     pattern: '"version":\s*"(?<version>[^"]+)"'

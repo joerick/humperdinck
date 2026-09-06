@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import type { Branch } from '@/model';
 import {
   CHANGELOG_MARKER_EXAMPLE,
+  DEFAULT_TAG_PATTERN,
   RELEASE_CONFIG_PATH,
   emptyReleaseConfig,
   parseReleaseConfig,
@@ -24,16 +25,26 @@ const busy = ref(false);
 const error = ref<string | null>(null);
 const message = ref<string | null>(null);
 const markerStatus = ref<string | null>(null);
+const tagPatternPreset = ref<'starts-with-v' | 'any' | 'custom'>('starts-with-v');
 
 const yamlPreview = computed(() => renderReleaseConfig(config.value));
+const ANY_TAG_PATTERN = '(?<version>\\d.*)';
 
 function reset(): void {
   config.value = props.initialConfig
     ? parseReleaseConfig(renderReleaseConfig(props.initialConfig))
     : emptyReleaseConfig();
+  tagPatternPreset.value = config.value.tagPattern === DEFAULT_TAG_PATTERN
+    ? 'starts-with-v'
+    : config.value.tagPattern === ANY_TAG_PATTERN ? 'any' : 'custom';
   error.value = null;
   message.value = null;
   markerStatus.value = null;
+}
+
+function selectTagPattern(): void {
+  if (tagPatternPreset.value === 'starts-with-v') config.value.tagPattern = DEFAULT_TAG_PATTERN;
+  if (tagPatternPreset.value === 'any') config.value.tagPattern = ANY_TAG_PATTERN;
 }
 
 function addVersionFile(): void {
@@ -96,15 +107,28 @@ watch([() => props.branch, () => props.initialConfig], reset, { immediate: true 
       </p>
     </header>
 
-    <div class="settings-section">
-      <label>
-        Release tag regular expression
-        <input v-model="config.tagPattern" type="text" :disabled="busy" />
-      </label>
-      <p class="hint">
-        Use a named <code>version</code> group to extract the version, for example
-        <code>^v(?&lt;version&gt;\d+\.\d+\.\d+)$</code>.
-      </p>
+    <div class="settings-section tag-settings">
+      <details :open="tagPatternPreset === 'custom'">
+        <summary>Advanced: release tag format</summary>
+        <div class="advanced-content">
+          <label>
+            Tags to treat as releases
+            <select v-model="tagPatternPreset" :disabled="busy" @change="selectTagPattern">
+              <option value="starts-with-v">Starts with “v”</option>
+              <option value="any">Any tag containing a version</option>
+              <option value="custom">Custom regular expression</option>
+            </select>
+          </label>
+          <label v-if="tagPatternPreset === 'custom'">
+            Custom regular expression
+            <input v-model="config.tagPattern" type="text" :disabled="busy" />
+          </label>
+          <p class="hint">
+            The expression uses a named <code>version</code> group. The default is
+            <code>{{ DEFAULT_TAG_PATTERN }}</code>.
+          </p>
+        </div>
+      </details>
     </div>
 
     <div class="settings-section">
@@ -183,8 +207,10 @@ header p:last-child { margin-bottom: 0; color: #dce8f3; }
 .section-heading, .save-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 h4 { margin: 0 0 5px; }
 label { display: grid; gap: 7px; font-weight: 700; }
-input { width: 100%; padding: 11px 12px; color: #273444; font: inherit; border: 1px solid #b9c3ce; border-radius: 8px; }
+input, select { width: 100%; padding: 11px 12px; color: #273444; font: inherit; border: 1px solid #b9c3ce; border-radius: 8px; background: #fff; }
 input:focus { outline: 3px solid rgb(55 132 190 / 20%); border-color: #3784be; }
+.tag-settings summary { cursor: pointer; color: #43566a; font-weight: 750; }
+.advanced-content { display: grid; gap: 14px; margin-top: 16px; }
 .hint { margin: 8px 0 0; color: #657081; font-size: .9rem; }
 .version-file { display: grid; grid-template-columns: 1fr 1.5fr auto; gap: 12px; align-items: end; margin-top: 16px; padding: 16px; border-radius: 10px; background: #f3f6f9; }
 .empty-row { margin-top: 16px; padding: 18px; color: #657081; border: 1px dashed #bdc7d2; border-radius: 10px; }

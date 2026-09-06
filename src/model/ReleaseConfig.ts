@@ -2,7 +2,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import Version from './Version';
 
 export const RELEASE_CONFIG_PATH = '.humperdinck.yaml';
-export const DEFAULT_TAG_PATTERN = '^v(?<version>\\d+\\.\\d+\\.\\d+)$';
+export const DEFAULT_TAG_PATTERN = 'v(?<version>\\d.*)';
 export const CHANGELOG_MARKER_EXAMPLE = '<!-- humperdinck: releases order=newest-first heading=2 -->';
 
 export interface VersionFileConfig {
