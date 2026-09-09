@@ -32,6 +32,15 @@ const changelogSource = ref<string | null>(null);
 const changelogMarkerLine = ref(1);
 const changelogOrder = ref<'newest-first' | 'newest-last'>('newest-first');
 const changelogHeading = ref(2);
+const configPath = ref(RELEASE_CONFIG_PATH);
+
+type DiffKind = 'context' | 'addition' | 'deletion' | 'skip';
+interface DiffLine {
+  kind: DiffKind;
+  content: string;
+  oldLine?: number;
+  newLine?: number;
+}
 
 const yamlPreview = computed(() => renderReleaseConfig(config.value));
 const ANY_TAG_PATTERN = '(?<version>\\d.*)';
@@ -55,7 +64,10 @@ const updatedChangelogSource = computed(() => {
 });
 const changePreviews = computed(() => {
   const originalYaml = props.initialConfig ? renderReleaseConfig(props.initialConfig) : '';
-  const previews = [{ path: RELEASE_CONFIG_PATH, diff: compactDiff(originalYaml, yamlPreview.value) }];
+  const previews: Array<{ path: string; lines: DiffLine[] }> = [];
+  if (originalYaml !== yamlPreview.value) {
+    previews.push({ path: configPath.value, lines: createDiff(originalYaml, yamlPreview.value) });
+  }
   if (
     changelogSource.value !== null &&
     updatedChangelogSource.value !== null &&
@@ -63,31 +75,61 @@ const changePreviews = computed(() => {
   ) {
     previews.push({
       path: config.value.changelog.path,
-      diff: compactDiff(changelogSource.value, updatedChangelogSource.value),
+      lines: createDiff(changelogSource.value, updatedChangelogSource.value),
     });
   }
   return previews;
 });
 
-function compactDiff(before: string, after: string): string {
+function createDiff(before: string, after: string): DiffLine[] {
   const oldLines = before.split('\n');
   const newLines = after.split('\n');
-  let start = 0;
-  while (oldLines[start] === newLines[start] && start < oldLines.length && start < newLines.length) start += 1;
-  let oldEnd = oldLines.length - 1;
-  let newEnd = newLines.length - 1;
-  while (oldEnd >= start && newEnd >= start && oldLines[oldEnd] === newLines[newEnd]) {
-    oldEnd -= 1;
-    newEnd -= 1;
+  const lengths = Array.from({ length: oldLines.length + 1 }, () =>
+    Array<number>(newLines.length + 1).fill(0));
+  for (let oldIndex = oldLines.length - 1; oldIndex >= 0; oldIndex -= 1) {
+    for (let newIndex = newLines.length - 1; newIndex >= 0; newIndex -= 1) {
+      lengths[oldIndex]![newIndex] = oldLines[oldIndex] === newLines[newIndex]
+        ? lengths[oldIndex + 1]![newIndex + 1]! + 1
+        : Math.max(lengths[oldIndex + 1]![newIndex]!, lengths[oldIndex]![newIndex + 1]!);
+    }
   }
-  const contextStart = Math.max(0, start - 2);
-  const contextEndNew = Math.min(newLines.length - 1, newEnd + 2);
-  return [
-    ...oldLines.slice(contextStart, start).map(line => `  ${line}`),
-    ...oldLines.slice(start, oldEnd + 1).map(line => `- ${line}`),
-    ...newLines.slice(start, newEnd + 1).map(line => `+ ${line}`),
-    ...newLines.slice(newEnd + 1, contextEndNew + 1).map(line => `  ${line}`),
-  ].join('\n');
+
+  const lines: DiffLine[] = [];
+  let oldIndex = 0;
+  let newIndex = 0;
+  let oldLine = 1;
+  let newLine = 1;
+  while (oldIndex < oldLines.length || newIndex < newLines.length) {
+    if (oldLines[oldIndex] === newLines[newIndex]) {
+      lines.push({ kind: 'context', content: oldLines[oldIndex]!, oldLine: oldLine++, newLine: newLine++ });
+      oldIndex += 1;
+      newIndex += 1;
+    } else if (
+      newIndex < newLines.length &&
+      (oldIndex >= oldLines.length || lengths[oldIndex]![newIndex + 1]! > lengths[oldIndex + 1]![newIndex]!)
+    ) {
+      lines.push({ kind: 'addition', content: newLines[newIndex]!, newLine: newLine++ });
+      newIndex += 1;
+    } else {
+      lines.push({ kind: 'deletion', content: oldLines[oldIndex]!, oldLine: oldLine++ });
+      oldIndex += 1;
+    }
+  }
+
+  const visible = new Set<number>();
+  lines.forEach((line, index) => {
+    if (line.kind !== 'context') {
+      for (let nearby = Math.max(0, index - 3); nearby <= Math.min(lines.length - 1, index + 3); nearby += 1) {
+        visible.add(nearby);
+      }
+    }
+  });
+  const compact: DiffLine[] = [];
+  lines.forEach((line, index) => {
+    if (visible.has(index)) compact.push(line);
+    else if (visible.has(index - 1) || index === 0) compact.push({ kind: 'skip', content: '…' });
+  });
+  return compact;
 }
 
 function reset(): void {
@@ -105,6 +147,7 @@ function reset(): void {
   changelogMarkerLine.value = 1;
   changelogOrder.value = 'newest-first';
   changelogHeading.value = 2;
+  configPath.value = RELEASE_CONFIG_PATH;
 }
 
 function selectTagPattern(): void {
@@ -158,7 +201,7 @@ async function save(): Promise<void> {
   await run(async () => {
     const validated = parseReleaseConfig(yamlPreview.value);
     if (changelogSource.value === null || updatedChangelogSource.value === null) {
-      throw new Error('Load the changelog file and configure its release marker before saving.');
+      throw new Error('The changelog file could not be loaded. Check its path before saving.');
     }
     if (!findChangelogMarker(updatedChangelogSource.value)) {
       throw new Error('The changelog marker configuration is incomplete.');
@@ -169,7 +212,7 @@ async function save(): Promise<void> {
       contents: updatedChangelogSource.value,
     }] : []);
     config.value = validated;
-    message.value = `${RELEASE_CONFIG_PATH} committed to ${props.branch.name}.`;
+    message.value = `${configPath.value} committed to ${props.branch.name}.`;
     window.dispatchEvent(new CustomEvent('humperdinck:release-config-saved', {
       detail: {
         key: `${props.branch.repo.ownerUsername}/${props.branch.repo.name}`,
@@ -194,9 +237,10 @@ async function run(action: () => Promise<void>): Promise<void> {
   }
 }
 
-watch([() => props.branch, () => props.initialConfig], () => {
+watch([() => props.branch, () => props.initialConfig], async () => {
   reset();
-  validateChangelog().catch(console.error);
+  configPath.value = await props.branch.releaseConfigPath() ?? RELEASE_CONFIG_PATH;
+  await validateChangelog();
 }, { immediate: true });
 </script>
 
@@ -206,34 +250,10 @@ watch([() => props.branch, () => props.initialConfig], () => {
       <p class="eyebrow">Branch settings</p>
       <h3>Configure releases from {{ branch.name }}</h3>
       <p>
-        Saving commits <code>{{ RELEASE_CONFIG_PATH }}</code> directly to this branch.
+        Saving commits <code>{{ configPath }}</code> directly to this branch.
         Other branches can carry different release settings.
       </p>
     </header>
-
-    <div class="settings-section tag-settings">
-      <details :open="tagPatternPreset === 'custom'">
-        <summary>Advanced: release tag format</summary>
-        <div class="advanced-content">
-          <label>
-            Tags to treat as releases
-            <select v-model="tagPatternPreset" :disabled="busy" @change="selectTagPattern">
-              <option value="starts-with-v">Starts with “v”</option>
-              <option value="any">Any tag containing a version</option>
-              <option value="custom">Custom regular expression</option>
-            </select>
-          </label>
-          <label v-if="tagPatternPreset === 'custom'">
-            Custom regular expression
-            <input v-model="config.tagPattern" type="text" :disabled="busy" />
-          </label>
-          <p class="hint">
-            The expression uses a named <code>version</code> group. The default is
-            <code>{{ DEFAULT_TAG_PATTERN }}</code>.
-          </p>
-        </div>
-      </details>
-    </div>
 
     <div class="settings-section">
       <div class="section-heading">
@@ -274,8 +294,15 @@ watch([() => props.branch, () => props.initialConfig], () => {
             × {{ versionFileStatuses[index]?.error }}
           </small>
         </label>
-        <button type="button" class="remove" :disabled="busy" @click="removeVersionFile(index)">
-          Remove
+        <button
+          type="button"
+          class="remove"
+          :disabled="busy"
+          :aria-label="`Remove ${file.path || 'version file'}`"
+          title="Remove file"
+          @click="removeVersionFile(index)"
+        >
+          ×
         </button>
       </div>
     </div>
@@ -291,10 +318,13 @@ watch([() => props.branch, () => props.initialConfig], () => {
           @blur="validateChangelog"
         />
       </label>
-      <button type="button" class="button-secondary" :disabled="busy" @click="validateChangelog">
-        Load changelog
-      </button>
-      <p v-if="markerStatus" class="message good">{{ markerStatus }}</p>
+      <p
+        v-if="markerStatus"
+        class="marker-status"
+        :class="{ good: existingChangelogMarker, warning: !existingChangelogMarker }"
+      >
+        {{ existingChangelogMarker ? `✓ Marker on line ${changelogMarkerLine}` : markerStatus }}
+      </p>
 
       <div v-if="changelogSource !== null" class="marker-editor">
         <div v-if="!existingChangelogMarker" class="marker-position">
@@ -310,7 +340,7 @@ watch([() => props.branch, () => props.initialConfig], () => {
         </div>
         <div class="marker-options">
           <label>
-            New entries
+            Ordering
             <select v-model="changelogOrder" :disabled="busy">
               <option value="newest-first">Newest first</option>
               <option value="newest-last">Newest last</option>
@@ -329,12 +359,45 @@ watch([() => props.branch, () => props.initialConfig], () => {
       </div>
     </div>
 
+    <div class="settings-section tag-settings">
+      <details :open="tagPatternPreset === 'custom'">
+        <summary>Advanced: release tag format</summary>
+        <div class="advanced-content">
+          <label>
+            Tags to treat as releases
+            <select v-model="tagPatternPreset" :disabled="busy" @change="selectTagPattern">
+              <option value="starts-with-v">Starts with “v”</option>
+              <option value="any">Any tag containing a version</option>
+              <option value="custom">Custom regular expression</option>
+            </select>
+          </label>
+          <label v-if="tagPatternPreset === 'custom'">
+            Custom regular expression
+            <input v-model="config.tagPattern" type="text" :disabled="busy" />
+          </label>
+          <p class="hint">
+            The expression uses a named <code>version</code> group. The default is
+            <code>{{ DEFAULT_TAG_PATTERN }}</code>.
+          </p>
+        </div>
+      </details>
+    </div>
+
     <details class="changes-preview">
       <summary>Preview changes</summary>
       <div v-for="preview in changePreviews" :key="preview.path" class="change-preview">
         <strong>{{ preview.path }}</strong>
-        <pre>{{ preview.diff || '  No changes' }}</pre>
+        <div class="diff" role="table" :aria-label="`Changes to ${preview.path}`">
+          <div class="diff-file-header">--- a/{{ preview.path }}</div>
+          <div class="diff-file-header">+++ b/{{ preview.path }}</div>
+          <div v-for="(line, index) in preview.lines" :key="index" class="diff-line" :class="line.kind">
+            <span class="line-number">{{ line.oldLine ?? '' }}</span>
+            <span class="line-number">{{ line.newLine ?? '' }}</span>
+            <code><span class="prefix">{{ line.kind === 'addition' ? '+' : line.kind === 'deletion' ? '-' : ' ' }}</span>{{ line.content }}</code>
+          </div>
+        </div>
       </div>
+      <p v-if="changePreviews.length === 0" class="no-changes">No changes yet.</p>
     </details>
 
     <div class="save-row">
@@ -361,6 +424,7 @@ h4 { margin: 0 0 5px; }
 label { display: grid; gap: 7px; font-weight: 700; }
 input, select { width: 100%; padding: 11px 12px; color: #273444; font: inherit; border: 1px solid #b9c3ce; border-radius: 8px; background: #fff; }
 input:focus { outline: 3px solid rgb(55 132 190 / 20%); border-color: #3784be; }
+input::placeholder { color: #718092; opacity: .42; }
 .tag-settings summary { cursor: pointer; color: #43566a; font-weight: 750; }
 .advanced-content { display: grid; gap: 14px; margin-top: 16px; }
 .hint { margin: 8px 0 0; color: #657081; font-size: .9rem; }
@@ -372,15 +436,29 @@ input:focus { outline: 3px solid rgb(55 132 190 / 20%); border-color: #3784be; }
 button { padding: 10px 15px; color: #fff; font: inherit; font-weight: 750; border: 0; border-radius: 8px; background: #365f82; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .button-secondary { color: #365f82; background: #e9f0f6; }
-.settings-section > .button-secondary { margin-top: 12px; }
-.remove { color: #a3421b; background: #ffe9df; }
+.remove { display: grid; width: 30px; height: 30px; padding: 0; place-items: center; color: #c43b37; border-radius: 50%; background: transparent; font-size: 1.6rem; font-weight: 400; line-height: 1; }
+.remove:hover { background: #ffe9e7; }
+.marker-status { display: inline-block; margin: 8px 0 0; color: #657081; font-size: .82rem; }
+.marker-status.good { padding: 0; color: #087747; background: none; }
+.marker-status.warning { color: #9a5b16; }
 .marker-editor { display: grid; gap: 15px; margin-top: 16px; padding: 16px; border: 1px solid #d9e1e8; border-radius: 10px; background: #f8fafc; }
 .marker-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .changes-preview { margin: 0 32px 24px; }
 .changes-preview summary { cursor: pointer; font-weight: 700; }
 .change-preview { margin-top: 14px; }
 .change-preview strong { font-family: ui-monospace, monospace; }
-pre { overflow-x: auto; padding: 15px; border-radius: 8px; background: #18222e; color: #e6edf3; }
+.diff { overflow-x: auto; margin-top: 8px; color: #d9e2ec; border: 1px solid #293849; border-radius: 8px; background: #18222e; font: .78rem ui-monospace, monospace; }
+.diff-file-header { padding: 2px 12px; color: #9fb0c1; }
+.diff-file-header:first-child { padding-top: 9px; }
+.diff-file-header:nth-child(2) { padding-bottom: 7px; border-bottom: 1px solid #344557; }
+.diff-line { display: grid; grid-template-columns: 42px 42px minmax(max-content, 1fr); min-height: 22px; }
+.diff-line.addition { color: #b7efc5; background: #173b2b; }
+.diff-line.deletion { color: #ffd0cc; background: #482727; }
+.diff-line.skip { color: #92a5b8; background: #203044; }
+.line-number { padding: 3px 7px; color: #7f93a7; border-right: 1px solid rgb(159 176 193 / 16%); text-align: right; user-select: none; }
+.diff-line code { padding: 3px 10px; white-space: pre; }
+.prefix { display: inline-block; width: 1.4em; user-select: none; }
+.no-changes { margin: 12px 0 0; color: #657081; font-size: .9rem; }
 .save-row { padding: 22px 32px; border-top: 1px solid #e9edf1; background: #f8fafc; }
 .message { margin: 0 32px 22px; padding: 12px; border-radius: 8px; }
 .good { color: #087747; background: #e4f6ed; }

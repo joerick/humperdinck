@@ -9,7 +9,7 @@ import { db, functions } from '@/firebase';
 import {Octokit, type RestEndpointMethodTypes} from '@octokit/rest';
 import Repo from './Repo';
 import { FirestoreDocumentObserver } from '@/util';
-import { RELEASE_CONFIG_PATH } from './ReleaseConfig';
+import { RELEASE_CONFIG_PATHS } from './ReleaseConfig';
 
 type GithubRepository = RestEndpointMethodTypes['repos']['get']['response']['data'];
 
@@ -74,18 +74,20 @@ export default class User {
     }
 
     async repoHasDefaultBranchConfig(repo: UserRepo): Promise<boolean> {
-        try {
-            await this.octokit.rest.repos.getContent({
-                owner: repo.ownerUsername,
-                repo: repo.name,
-                path: RELEASE_CONFIG_PATH,
-                ref: repo.defaultBranchName,
-            });
-            return true;
-        } catch (error) {
-            if (isNotFound(error)) return false;
-            throw error;
+        for (const path of RELEASE_CONFIG_PATHS) {
+            try {
+                await this.octokit.rest.repos.getContent({
+                    owner: repo.ownerUsername,
+                    repo: repo.name,
+                    path,
+                    ref: repo.defaultBranchName,
+                });
+                return true;
+            } catch (error) {
+                if (!isNotFound(error)) throw error;
+            }
         }
+        return false;
     }
 
     async getRepo(owner: string, name: string): Promise<Repo> {

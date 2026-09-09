@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import {
+  RELEASE_CONFIG_PATH,
+  RELEASE_CONFIG_PATHS,
   findChangelogMarker,
   insertChangelogEntry,
   nextVersion,
@@ -20,6 +22,11 @@ const config: ReleaseConfig = {
 };
 
 describe('release configuration', () => {
+  test('uses .yml by default while accepting the .yaml spelling', () => {
+    expect(RELEASE_CONFIG_PATH).toBe('.humperdinck.yml');
+    expect(RELEASE_CONFIG_PATHS).toEqual(['.humperdinck.yml', '.humperdinck.yaml']);
+  });
+
   test('round trips through YAML', () => {
     expect(parseReleaseConfig(renderReleaseConfig(config))).toStrictEqual(config);
   });

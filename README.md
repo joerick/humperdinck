@@ -4,7 +4,8 @@ Vue 3 and Firebase application for inspecting repository release state.
 
 ## Repository configuration
 
-Release settings are branch-specific and live in `.humperdinck.yaml` on the
+Release settings are branch-specific and live in `.humperdinck.yml` (or the
+also-supported `.humperdinck.yaml`) on the
 branch being released. They can be created from the repository Settings screen.
 
 ```yaml

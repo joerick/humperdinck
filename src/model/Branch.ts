@@ -3,6 +3,7 @@ import Commit, { type GithubCommit } from './Commit';
 import Repo from './Repo';
 import {
     RELEASE_CONFIG_PATH,
+    RELEASE_CONFIG_PATHS,
     findChangelogMarker,
     insertChangelogEntry,
     parseReleaseConfig,
@@ -101,21 +102,30 @@ export default class Branch {
     }
 
     async loadReleaseConfig(): Promise<ReleaseConfig | null> {
-        try {
-            const source = await this.fileContents(RELEASE_CONFIG_PATH);
-            return parseReleaseConfig(source);
-        } catch (error) {
-            if (error instanceof Error && error.message === 'file not found') return null;
-            throw error;
+        const path = await this.releaseConfigPath();
+        if (!path) return null;
+        return parseReleaseConfig(await this.fileContents(path));
+    }
+
+    async releaseConfigPath(): Promise<string | null> {
+        for (const path of RELEASE_CONFIG_PATHS) {
+            try {
+                await this.headCommit.root.getFile(path);
+                return path;
+            } catch (error) {
+                if (!(error instanceof Error) || error.message !== 'file not found') throw error;
+            }
         }
+        return null;
     }
 
     async saveReleaseConfig(
         config: ReleaseConfig,
         additionalFiles: Array<{ path: string; contents: string }> = [],
     ): Promise<void> {
+        const configPath = await this.releaseConfigPath() ?? RELEASE_CONFIG_PATH;
         const files = [
-            { path: RELEASE_CONFIG_PATH, contents: renderReleaseConfig(config) },
+            { path: configPath, contents: renderReleaseConfig(config) },
             ...additionalFiles,
         ];
         const tree = await Promise.all(files.map(async file => {
