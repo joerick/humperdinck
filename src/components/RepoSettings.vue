@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, useTemplateRef, watch } from 'vue';
 import { computedAsync, useAsyncState } from '@vueuse/core';
+import MarkerPositionDialog from '@/components/MarkerPositionDialog.vue';
 import type { Branch } from '@/model';
 import { createLineDiff, type DiffLine } from '@/diff';
 import {
@@ -31,11 +32,12 @@ const markerStatus = ref<string | null>(null);
 const tagPatternPreset = ref<'starts-with-v' | 'any' | 'custom'>('starts-with-v');
 const versionFileStatuses = ref<Record<number, { checking?: boolean; found?: boolean; preview?: string; error?: string }>>({});
 const changelogSource = ref<string | null>(null);
-const changelogMarkerLine = ref(1);
+const changelogMarkerLine = ref<number | null>(null);
 const changelogOrder = ref<'newest-first' | 'newest-last'>('newest-first');
 const changelogHeading = ref(2);
 const configPath = ref(RELEASE_CONFIG_PATH);
 const settingsLoading = ref(false);
+const markerDialog = useTemplateRef('markerDialog');
 
 const yamlPreview = computed(() => renderReleaseConfig(config.value));
 const ANY_TAG_PATTERN = '(?<version>\\d.*)';
@@ -84,19 +86,29 @@ const loading = computed(() => (
 const existingChangelogMarker = computed(() => (
   changelogSource.value === null ? null : findChangelogMarker(changelogSource.value)
 ));
-const changelogLines = computed(() => changelogSource.value?.split('\n') ?? []);
+const changelogBaseSource = computed(() => {
+  if (changelogSource.value === null) return null;
+  const marker = existingChangelogMarker.value;
+  if (!marker) return changelogSource.value;
+  const before = changelogSource.value.slice(0, marker.index);
+  const after = changelogSource.value
+    .slice(marker.index + marker.length)
+    .replace(/^\r?\n(?:\r?\n)?/, '');
+  return before + after;
+});
 const renderedChangelogMarker = computed(() => (
   `<!-- humperdinck: releases order=${changelogOrder.value} heading=${changelogHeading.value} -->`
 ));
 const updatedChangelogSource = computed(() => {
-  if (changelogSource.value === null) return null;
-  const marker = existingChangelogMarker.value;
-  if (marker) {
-    return changelogSource.value.slice(0, marker.index) + renderedChangelogMarker.value +
-      changelogSource.value.slice(marker.index + marker.length);
-  }
-  const lines = [...changelogLines.value];
-  lines.splice(Math.max(0, changelogMarkerLine.value - 1), 0, renderedChangelogMarker.value);
+  if (changelogSource.value === null || changelogBaseSource.value === null) return null;
+  if (changelogMarkerLine.value === null) return changelogSource.value;
+  const lines = changelogBaseSource.value.split('\n');
+  lines.splice(
+    Math.min(lines.length, Math.max(0, changelogMarkerLine.value)),
+    0,
+    renderedChangelogMarker.value,
+    '',
+  );
   return lines.join('\n');
 });
 const changePreviews = computed(() => {
@@ -131,7 +143,7 @@ function reset(): void {
   markerStatus.value = null;
   versionFileStatuses.value = {};
   changelogSource.value = null;
-  changelogMarkerLine.value = 1;
+  changelogMarkerLine.value = null;
   changelogOrder.value = 'newest-first';
   changelogHeading.value = 2;
   configPath.value = RELEASE_CONFIG_PATH;
@@ -189,12 +201,17 @@ function applyChangelogSource(source: string): void {
   if (marker) {
     changelogOrder.value = marker.order;
     changelogHeading.value = marker.heading;
-    changelogMarkerLine.value = source.slice(0, marker.index).split('\n').length;
-    markerStatus.value = `Marker found on line ${changelogMarkerLine.value}.`;
+    const markerLine = source.slice(0, marker.index).split('\n').length;
+    changelogMarkerLine.value = Math.max(1, markerLine - 1);
+    markerStatus.value = `Marker on line ${markerLine}`;
   } else {
-    changelogMarkerLine.value = Math.min(2, changelogLines.value.length + 1);
+    changelogMarkerLine.value = null;
     markerStatus.value = 'No marker found. Choose where to insert it below.';
   }
+}
+
+function openMarkerDialog(): void {
+  markerDialog.value?.open();
 }
 
 async function save(): Promise<void> {
@@ -329,21 +346,29 @@ watch(loadedSettings, loaded => {
         class="marker-status"
         :class="{ good: existingChangelogMarker, warning: !existingChangelogMarker }"
       >
-        {{ existingChangelogMarker ? `✓ Marker on line ${changelogMarkerLine}` : markerStatus }}
+        {{ existingChangelogMarker ? `✓ ${markerStatus}` : markerStatus }}
       </p>
 
       <div v-if="changelogSource !== null" class="marker-editor">
-        <div v-if="!existingChangelogMarker" class="marker-position">
-          <label>
-            Insert marker before
-            <select v-model.number="changelogMarkerLine" :disabled="loading">
-              <option v-for="(line, index) in changelogLines" :key="index" :value="index + 1">
-                Line {{ index + 1 }} — {{ line.trim() || '(blank line)' }}
-              </option>
-              <option :value="changelogLines.length + 1">End of file</option>
-            </select>
-          </label>
+        <div class="marker-position">
+          <div>
+            <strong>Insertion point</strong>
+            <p class="hint">
+              {{ changelogMarkerLine === null ? 'No line selected.' : `After line ${changelogMarkerLine}.` }}
+            </p>
+          </div>
+          <button type="button" class="button-secondary" :disabled="loading" @click="openMarkerDialog">
+            {{ changelogMarkerLine === null ? 'Choose line' : 'Change line' }}
+          </button>
         </div>
+        <MarkerPositionDialog
+          v-if="changelogBaseSource !== null"
+          ref="markerDialog"
+          v-model="changelogMarkerLine"
+          :path="config.changelog.path"
+          :source="changelogBaseSource"
+          marker="<!-- humperdinck: releases -->"
+        />
         <div class="marker-options">
           <label>
             Ordering
@@ -462,6 +487,8 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .marker-status.good { padding: 0; color: #087747; background: none; }
 .marker-status.warning { color: #9a5b16; }
 .marker-editor { display: grid; gap: 15px; margin-top: 16px; padding: 16px; border: 1px solid #d9e1e8; border-radius: 10px; background: #f8fafc; }
+.marker-position { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.marker-position .hint { margin-top: 3px; }
 .marker-options { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .changes-preview { margin: 0 32px 24px; }
 .changes-preview summary { cursor: pointer; font-weight: 700; }
