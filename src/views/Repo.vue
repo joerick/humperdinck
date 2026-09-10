@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref } from 'vue';
+import { computedAsync } from '@vueuse/core';
 import { useRoute, useRouter } from 'vue-router';
 import { type Repo, type User, type Branch } from '../model';
 import type { CheckStatusSummary } from '@/model/Commit';
@@ -17,16 +18,70 @@ const props = defineProps<{
 const route = useRoute();
 const router = useRouter();
 
-const repo = ref<Repo | null>(null);
-const branch = ref<Branch | null>(null);
-const branchNames = ref<string[]>([]);
-const config = ref<ReleaseConfig | null>(null);
-const changes = ref<ReleaseChangesModel | null>(null);
-const checks = ref<CheckStatusSummary | null>(null);
-const loadingMessage = ref('Loading repository…');
-const error = ref<string | null>(null);
+interface RepoPageState {
+  repo: Repo | null;
+  branch: Branch | null;
+  branchNames: string[];
+  config: ReleaseConfig | null;
+  changes: ReleaseChangesModel | null;
+  checks: CheckStatusSummary | null;
+  error: string | null;
+}
+
+const EMPTY_PAGE: RepoPageState = {
+  repo: null,
+  branch: null,
+  branchNames: [],
+  config: null,
+  changes: null,
+  checks: null,
+  error: null,
+};
+
+const refreshKey = ref(0);
+const isLoading = ref(false);
 
 const isSettings = computed(() => route.name === 'repo-settings');
+const page = computedAsync(async () => {
+  refreshKey.value;
+  const user = props.user;
+  const owner = String(route.params.owner);
+  const repoName = String(route.params.repoName);
+  const branchName = String(route.params.branch);
+  const settingsRoute = route.name === 'repo-settings';
+  if (!user) return EMPTY_PAGE;
+
+  try {
+    const loadedRepo = await user.getRepo(owner, repoName);
+    const loadedBranch = await loadedRepo.branch(branchName);
+    const [branchNames, config, checks] = await Promise.all([
+      loadedRepo.branchNames(),
+      loadedBranch.loadReleaseConfig(),
+      loadedBranch.headCommit.getCheckStatus(),
+    ]);
+    const changes = config && !settingsRoute
+      ? await loadedBranch.changesSinceLatestRelease(config)
+      : null;
+    return { repo: loadedRepo, branch: loadedBranch, branchNames, config, changes, checks, error: null };
+  } catch (caught) {
+    return {
+      ...EMPTY_PAGE,
+      error: caught instanceof Error ? caught.message : String(caught),
+    };
+  }
+}, EMPTY_PAGE, { evaluating: isLoading });
+const repo = computed(() => page.value.repo);
+const branch = computed(() => page.value.branch);
+const branchNames = computed(() => page.value.branchNames);
+const config = computed(() => page.value.config);
+const changes = computed(() => page.value.changes);
+const checks = computed(() => page.value.checks);
+const error = computed(() => page.value.error);
+const loadingMessage = computed(() => {
+  if (props.user === undefined) return 'Loading account…';
+  if (props.user === null) return 'Log in to view this page.';
+  return 'Loading repository…';
+});
 const checkLabel = computed(() => {
   if (checks.value === null) return 'Checking…';
   if (checks.value.total === 0) return 'No checks reported';
@@ -36,50 +91,6 @@ const checkLabel = computed(() => {
   return passing;
 });
 const headCommitUrl = computed(() => branch.value?.githubObj.commit.html_url);
-
-async function loadRepo(): Promise<void> {
-  repo.value = null;
-  branch.value = null;
-  branchNames.value = [];
-  config.value = null;
-  changes.value = null;
-  checks.value = null;
-  error.value = null;
-
-  if (props.user === undefined) {
-    loadingMessage.value = 'Loading account…';
-    return;
-  }
-  if (props.user === null) {
-    loadingMessage.value = 'Log in to view this page.';
-    return;
-  }
-  loadingMessage.value = 'Loading repository…';
-
-  try {
-    const loadedRepo = await props.user.getRepo(
-      String(route.params.owner),
-      String(route.params.repoName),
-    );
-    const loadedBranch = await loadedRepo.branch(String(route.params.branch));
-    repo.value = loadedRepo;
-    branch.value = loadedBranch;
-    (window as Window & { pageRepo?: Repo }).pageRepo = loadedRepo;
-
-    [branchNames.value, config.value, checks.value] = await Promise.all([
-      loadedRepo.branchNames(),
-      loadedBranch.loadReleaseConfig(),
-      loadedBranch.headCommit.getCheckStatus(),
-    ]);
-
-    if (config.value && !isSettings.value) {
-      loadingMessage.value = 'Grouping commits and pull requests…';
-      changes.value = await loadedBranch.changesSinceLatestRelease(config.value);
-    }
-  } catch (caught) {
-    error.value = caught instanceof Error ? caught.message : String(caught);
-  }
-}
 
 function routeFor(name: 'repo-branch' | 'repo-settings', selectedBranch = branch.value?.name) {
   return {
@@ -97,8 +108,7 @@ function selectBranch(event: Event): void {
   router.push(routeFor(isSettings.value ? 'repo-settings' : 'repo-branch', selectedBranch));
 }
 
-function settingsSaved(savedConfig: ReleaseConfig): void {
-  config.value = savedConfig;
+function settingsSaved(): void {
   router.push(routeFor('repo-branch'));
 }
 
@@ -106,16 +116,14 @@ function checkClass(): string {
   return `checks-${checks.value?.status ?? 'loading'}`;
 }
 
-watch(
-  [() => props.user, () => route.fullPath],
-  () => loadRepo().catch(console.error),
-  { immediate: true },
-);
+function reloadRepo(): void {
+  refreshKey.value += 1;
+}
 </script>
 
 <template>
   <div class="repo">
-      <div v-if="repo === null || branch === null" class="loading-state">
+      <div v-if="error || isLoading || repo === null || branch === null" class="loading-state">
         <p v-if="error" class="page-error">{{ error }}</p>
         <p v-else>{{ loadingMessage }}</p>
       </div>
@@ -174,7 +182,7 @@ watch(
             :branch="branch"
             :config="config"
             :current-release="changes.release"
-            @released="loadRepo"
+            @released="reloadRepo"
           />
         </template>
 

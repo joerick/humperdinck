@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, useTemplateRef, watch } from 'vue';
+import { Semaphore } from 'async-mutex';
 import { useRoute, useRouter } from 'vue-router';
-import type { User } from '../model';
-import type { UserRepo } from '@/model/User';
+import type { Repo, User } from '../model';
+import { CancellableTask } from '@/util';
 
 const props = defineProps<{
   user?: User | null;
@@ -14,9 +15,11 @@ interface ConfigurationCache {
   repositories: Record<string, { defaultBranchName: string; configured: boolean }>;
 }
 
+type RepoIdentity = Pick<Repo, 'ownerUsername' | 'name'>;
+
 const route = useRoute();
 const router = useRouter();
-const picker = ref<HTMLDetailsElement | null>(null);
+const picker = useTemplateRef('picker');
 const search = ref('');
 const showAll = ref(false);
 const configuration = reactive(new Map<string, boolean>());
@@ -26,14 +29,13 @@ const checkTotal = ref(0);
 const checkFailures = ref(0);
 const isScanning = ref(false);
 const lastCheckedAt = ref<number | null>(null);
-let scanGeneration = 0;
+let scanTask: CancellableTask | null = null;
 
 const selectedRepoKey = computed(() => {
   if (!route.params.owner || !route.params.repoName) return '';
   return repoKey({
     ownerUsername: String(route.params.owner),
     name: String(route.params.repoName),
-    defaultBranchName: '',
   });
 });
 
@@ -70,7 +72,7 @@ const scanLabel = computed(() => {
   return `${configured} configured · ${time}`;
 });
 
-function selectRepo(selected: UserRepo): void {
+function selectRepo(selected: Repo): void {
   recordLastUsed(selected);
   picker.value?.removeAttribute('open');
   router.push({
@@ -79,44 +81,45 @@ function selectRepo(selected: UserRepo): void {
   });
 }
 
-async function scanRepositories(user: User, reset = false): Promise<void> {
-  const generation = ++scanGeneration;
-  const allRepos = [...user.githubRepos];
-  if (reset) configuration.clear();
-  const repos = allRepos.filter(repo => !configuration.has(repoKey(repo)));
-  checkedCount.value = allRepos.length - repos.length;
-  checkTotal.value = allRepos.length;
-  checkFailures.value = 0;
+function scanRepositories(user: User, reset = false): void {
+  scanTask?.cancel();
   isScanning.value = true;
-  let cursor = 0;
-
-  async function worker(): Promise<void> {
-    while (cursor < repos.length && generation === scanGeneration) {
-      const repo = repos[cursor++]!;
-      const key = repoKey(repo);
-      try {
-        configuration.set(key, await user.repoHasDefaultBranchConfig(repo));
-      } catch (error) {
-        console.error(`Could not check release settings for ${key}`, error);
-        checkFailures.value += 1;
-      } finally {
-        checkedCount.value += 1;
-      }
+  scanTask = new CancellableTask(async task => {
+    try {
+      const allRepos = [...user.githubRepos];
+      if (reset) configuration.clear();
+      const repos = allRepos.filter(repo => !configuration.has(repoKey(repo)));
+      checkedCount.value = allRepos.length - repos.length;
+      checkTotal.value = allRepos.length;
+      checkFailures.value = 0;
+      const semaphore = new Semaphore(6);
+      await Promise.all(repos.map(repo => semaphore.runExclusive(async () => {
+        try {
+          task.yield();
+          const key = repoKey(repo);
+          const configured = await task.promise(repo.hasDefaultBranchConfig());
+          configuration.set(key, configured);
+        } catch (error) {
+          task.yield();
+          console.error(`Could not check release settings for ${repoKey(repo)}`, error);
+          checkFailures.value += 1;
+        } finally {
+          if (!task.isCancelled && !task.signal?.aborted) checkedCount.value += 1;
+        }
+      })));
+      lastCheckedAt.value = Date.now();
+      saveCache(user);
+    } finally {
+      if (scanTask === task) isScanning.value = false;
     }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(6, repos.length) }, () => worker()));
-  if (generation !== scanGeneration) return;
-  isScanning.value = false;
-  lastCheckedAt.value = Date.now();
-  saveCache(user);
+  });
 }
 
-function repoKey(repo: UserRepo): string {
+function repoKey(repo: RepoIdentity): string {
   return `${repo.ownerUsername}/${repo.name}`.toLowerCase();
 }
 
-function compareRepos(left: UserRepo, right: UserRepo): number {
+function compareRepos(left: Repo, right: Repo): number {
   return repoKey(left).localeCompare(repoKey(right), undefined, { sensitivity: 'base' });
 }
 
@@ -142,7 +145,7 @@ function restoreLastUsed(user: User): void {
   }
 }
 
-function recordLastUsed(repo: UserRepo): void {
+function recordLastUsed(repo: Repo): void {
   if (!props.user) return;
   lastUsed.set(repoKey(repo), Date.now());
   try {
@@ -195,7 +198,7 @@ function saveCache(user: User): void {
 }
 
 function refresh(): void {
-  if (props.user) scanRepositories(props.user, true).catch(console.error);
+  if (props.user) scanRepositories(props.user, true);
 }
 
 function markRepoConfigured(event: Event): void {
@@ -210,15 +213,18 @@ function markRepoConfigured(event: Event): void {
 }
 
 onMounted(() => window.addEventListener('humperdinck:release-config-saved', markRepoConfigured));
-onBeforeUnmount(() => window.removeEventListener('humperdinck:release-config-saved', markRepoConfigured));
+onBeforeUnmount(() => {
+  scanTask?.cancel();
+  window.removeEventListener('humperdinck:release-config-saved', markRepoConfigured);
+});
 
 watch(() => props.user, user => {
-  scanGeneration += 1;
+  scanTask?.cancel();
   isScanning.value = false;
   lastCheckedAt.value = null;
   if (user) {
     restoreLastUsed(user);
-    if (!restoreCache(user)) scanRepositories(user).catch(console.error);
+    if (!restoreCache(user)) scanRepositories(user);
   }
 }, { immediate: true });
 

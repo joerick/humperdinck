@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { computedAsync, useAsyncState } from '@vueuse/core';
 import type { Branch } from '@/model';
+import { createLineDiff, type DiffLine } from '@/diff';
 import {
   DEFAULT_TAG_PATTERN,
   RELEASE_CONFIG_PATH,
@@ -33,17 +35,52 @@ const changelogMarkerLine = ref(1);
 const changelogOrder = ref<'newest-first' | 'newest-last'>('newest-first');
 const changelogHeading = ref(2);
 const configPath = ref(RELEASE_CONFIG_PATH);
-
-type DiffKind = 'context' | 'addition' | 'deletion' | 'skip';
-interface DiffLine {
-  kind: DiffKind;
-  content: string;
-  oldLine?: number;
-  newLine?: number;
-}
+const settingsLoading = ref(false);
 
 const yamlPreview = computed(() => renderReleaseConfig(config.value));
 const ANY_TAG_PATTERN = '(?<version>\\d.*)';
+const loadedSettings = computedAsync(async () => {
+  const branch = props.branch;
+  const initialConfig = props.initialConfig;
+  const loadedConfig = initialConfig
+    ? parseReleaseConfig(renderReleaseConfig(initialConfig))
+    : emptyReleaseConfig();
+  try {
+    const [path, source] = await Promise.all([
+      branch.releaseConfigPath(),
+      branch.fileContents(loadedConfig.changelog.path),
+    ]);
+    return { branch, config: loadedConfig, path: path ?? RELEASE_CONFIG_PATH, source, error: null };
+  } catch (caught) {
+    return {
+      branch,
+      config: loadedConfig,
+      path: RELEASE_CONFIG_PATH,
+      source: null,
+      error: caught instanceof Error ? caught.message : String(caught),
+    };
+  }
+}, null, { evaluating: settingsLoading });
+const versionFileRequest = useAsyncState(
+  async (branch: Branch, releaseConfig: ReleaseConfig, path: string, find: string | undefined) => {
+    const [release, source] = await Promise.all([
+      branch.latestRelease(releaseConfig),
+      branch.fileContents(path),
+    ]);
+    const preview = expandVersionFind(find, release.version);
+    return { preview, found: source.includes(preview) };
+  },
+  null,
+  { immediate: false, throwError: true, onError: () => undefined },
+);
+const changelogRequest = useAsyncState(
+  async (branch: Branch, path: string) => ({ branch, path, source: await branch.fileContents(path) }),
+  null,
+  { immediate: false, throwError: true, onError: () => undefined },
+);
+const loading = computed(() => (
+  busy.value || settingsLoading.value || versionFileRequest.isLoading.value || changelogRequest.isLoading.value
+));
 const existingChangelogMarker = computed(() => (
   changelogSource.value === null ? null : findChangelogMarker(changelogSource.value)
 ));
@@ -66,7 +103,7 @@ const changePreviews = computed(() => {
   const originalYaml = props.initialConfig ? renderReleaseConfig(props.initialConfig) : '';
   const previews: Array<{ path: string; lines: DiffLine[] }> = [];
   if (originalYaml !== yamlPreview.value) {
-    previews.push({ path: configPath.value, lines: createDiff(originalYaml, yamlPreview.value) });
+    previews.push({ path: configPath.value, lines: createLineDiff(originalYaml, yamlPreview.value) });
   }
   if (
     changelogSource.value !== null &&
@@ -75,62 +112,12 @@ const changePreviews = computed(() => {
   ) {
     previews.push({
       path: config.value.changelog.path,
-      lines: createDiff(changelogSource.value, updatedChangelogSource.value),
+      lines: createLineDiff(changelogSource.value, updatedChangelogSource.value),
     });
   }
   return previews;
 });
-
-function createDiff(before: string, after: string): DiffLine[] {
-  const oldLines = before.split('\n');
-  const newLines = after.split('\n');
-  const lengths = Array.from({ length: oldLines.length + 1 }, () =>
-    Array<number>(newLines.length + 1).fill(0));
-  for (let oldIndex = oldLines.length - 1; oldIndex >= 0; oldIndex -= 1) {
-    for (let newIndex = newLines.length - 1; newIndex >= 0; newIndex -= 1) {
-      lengths[oldIndex]![newIndex] = oldLines[oldIndex] === newLines[newIndex]
-        ? lengths[oldIndex + 1]![newIndex + 1]! + 1
-        : Math.max(lengths[oldIndex + 1]![newIndex]!, lengths[oldIndex]![newIndex + 1]!);
-    }
-  }
-
-  const lines: DiffLine[] = [];
-  let oldIndex = 0;
-  let newIndex = 0;
-  let oldLine = 1;
-  let newLine = 1;
-  while (oldIndex < oldLines.length || newIndex < newLines.length) {
-    if (oldLines[oldIndex] === newLines[newIndex]) {
-      lines.push({ kind: 'context', content: oldLines[oldIndex]!, oldLine: oldLine++, newLine: newLine++ });
-      oldIndex += 1;
-      newIndex += 1;
-    } else if (
-      newIndex < newLines.length &&
-      (oldIndex >= oldLines.length || lengths[oldIndex]![newIndex + 1]! > lengths[oldIndex + 1]![newIndex]!)
-    ) {
-      lines.push({ kind: 'addition', content: newLines[newIndex]!, newLine: newLine++ });
-      newIndex += 1;
-    } else {
-      lines.push({ kind: 'deletion', content: oldLines[oldIndex]!, oldLine: oldLine++ });
-      oldIndex += 1;
-    }
-  }
-
-  const visible = new Set<number>();
-  lines.forEach((line, index) => {
-    if (line.kind !== 'context') {
-      for (let nearby = Math.max(0, index - 3); nearby <= Math.min(lines.length - 1, index + 3); nearby += 1) {
-        visible.add(nearby);
-      }
-    }
-  });
-  const compact: DiffLine[] = [];
-  lines.forEach((line, index) => {
-    if (visible.has(index)) compact.push(line);
-    else if (visible.has(index - 1) || index === 0) compact.push({ kind: 'skip', content: '…' });
-  });
-  return compact;
-}
+const hasChanges = computed(() => changePreviews.value.length > 0);
 
 function reset(): void {
   config.value = props.initialConfig
@@ -166,14 +153,14 @@ function removeVersionFile(index: number): void {
 async function validateVersionFile(index: number): Promise<void> {
   const file = config.value.versionFiles[index];
   if (!file?.path) return;
+  const branch = props.branch;
+  const path = file.path;
   versionFileStatuses.value[index] = { checking: true };
   try {
-    const [release, source] = await Promise.all([
-      props.branch.latestRelease(config.value),
-      props.branch.fileContents(file.path),
-    ]);
-    const preview = expandVersionFind(file.find, release.version);
-    versionFileStatuses.value[index] = { preview, found: source.includes(preview) };
+    const result = await versionFileRequest.execute(0, branch, config.value, path, file.find);
+    if (result && props.branch === branch && config.value.versionFiles[index]?.path === path) {
+      versionFileStatuses.value[index] = result;
+    }
   } catch (caught) {
     versionFileStatuses.value[index] = {
       error: caught instanceof Error ? caught.message : String(caught),
@@ -182,22 +169,36 @@ async function validateVersionFile(index: number): Promise<void> {
 }
 
 async function validateChangelog(): Promise<void> {
-  await run(async () => {
-    changelogSource.value = await props.branch.fileContents(config.value.changelog.path);
-    const marker = existingChangelogMarker.value;
-    if (marker) {
-      changelogOrder.value = marker.order;
-      changelogHeading.value = marker.heading;
-      changelogMarkerLine.value = changelogSource.value.slice(0, marker.index).split('\n').length;
-      markerStatus.value = `Marker found on line ${changelogMarkerLine.value}.`;
-    } else {
-      changelogMarkerLine.value = Math.min(2, changelogLines.value.length + 1);
-      markerStatus.value = 'No marker found. Choose where to insert it below.';
+  const branch = props.branch;
+  const path = config.value.changelog.path;
+  error.value = null;
+  markerStatus.value = null;
+  try {
+    const result = await changelogRequest.execute(0, branch, path);
+    if (result && props.branch === result.branch && config.value.changelog.path === result.path) {
+      applyChangelogSource(result.source);
     }
-  });
+  } catch (caught) {
+    error.value = caught instanceof Error ? caught.message : String(caught);
+  }
+}
+
+function applyChangelogSource(source: string): void {
+  changelogSource.value = source;
+  const marker = existingChangelogMarker.value;
+  if (marker) {
+    changelogOrder.value = marker.order;
+    changelogHeading.value = marker.heading;
+    changelogMarkerLine.value = source.slice(0, marker.index).split('\n').length;
+    markerStatus.value = `Marker found on line ${changelogMarkerLine.value}.`;
+  } else {
+    changelogMarkerLine.value = Math.min(2, changelogLines.value.length + 1);
+    markerStatus.value = 'No marker found. Choose where to insert it below.';
+  }
 }
 
 async function save(): Promise<void> {
+  if (!hasChanges.value) return;
   await run(async () => {
     const validated = parseReleaseConfig(yamlPreview.value);
     if (changelogSource.value === null || updatedChangelogSource.value === null) {
@@ -237,10 +238,15 @@ async function run(action: () => Promise<void>): Promise<void> {
   }
 }
 
-watch([() => props.branch, () => props.initialConfig], async () => {
+watch([() => props.branch, () => props.initialConfig], () => {
   reset();
-  configPath.value = await props.branch.releaseConfigPath() ?? RELEASE_CONFIG_PATH;
-  await validateChangelog();
+}, { immediate: true });
+watch(loadedSettings, loaded => {
+  if (!loaded || loaded.branch !== props.branch) return;
+  config.value = loaded.config;
+  configPath.value = loaded.path;
+  error.value = loaded.error;
+  if (loaded.source !== null) applyChangelogSource(loaded.source);
 }, { immediate: true });
 </script>
 
@@ -261,7 +267,7 @@ watch([() => props.branch, () => props.initialConfig], async () => {
           <h4>Files containing version numbers</h4>
           <p class="hint">Optionally narrow where the current version is found using <code>#</code> as its placeholder.</p>
         </div>
-        <button type="button" class="button-secondary" :disabled="busy" @click="addVersionFile">
+        <button type="button" class="button-secondary" :disabled="loading" @click="addVersionFile">
           Add file
         </button>
       </div>
@@ -270,40 +276,40 @@ watch([() => props.branch, () => props.initialConfig], async () => {
         No version files yet. Releases can still update the changelog.
       </div>
       <div v-for="(file, index) in config.versionFiles" :key="index" class="version-file">
-        <label>
+        <label class="path-field">
           File path
-          <input v-model.trim="file.path" type="text" placeholder="package.json" :disabled="busy" @blur="validateVersionFile(index)" />
+          <input v-model.trim="file.path" type="text" placeholder="package.json" :disabled="loading" @blur="validateVersionFile(index)" />
         </label>
-        <label>
+        <label class="find-field">
           Find (optional)
           <input
             v-model="file.find"
             type="text"
             placeholder="__version__ = &quot;#&quot;"
-            :disabled="busy"
+            :disabled="loading"
             @blur="validateVersionFile(index)"
           />
-          <small v-if="versionFileStatuses[index]?.checking" class="file-status">Checking file…</small>
-          <small v-else-if="versionFileStatuses[index]?.found" class="file-status good">
-            ✓ Found <code>{{ versionFileStatuses[index]?.preview }}</code> at branch head
-          </small>
-          <small v-else-if="versionFileStatuses[index]?.preview" class="file-status bad">
-            × <code>{{ versionFileStatuses[index]?.preview }}</code> was not found at branch head
-          </small>
-          <small v-else-if="versionFileStatuses[index]?.error" class="file-status bad">
-            × {{ versionFileStatuses[index]?.error }}
-          </small>
         </label>
         <button
           type="button"
           class="remove"
-          :disabled="busy"
+          :disabled="loading"
           :aria-label="`Remove ${file.path || 'version file'}`"
           title="Remove file"
           @click="removeVersionFile(index)"
         >
           ×
         </button>
+        <small v-if="versionFileStatuses[index]?.checking" class="file-status">Checking file…</small>
+        <small v-else-if="versionFileStatuses[index]?.found" class="file-status good">
+          ✓ Found <code>{{ versionFileStatuses[index]?.preview }}</code> at branch head
+        </small>
+        <small v-else-if="versionFileStatuses[index]?.preview" class="file-status bad">
+          × <code>{{ versionFileStatuses[index]?.preview }}</code> was not found at branch head
+        </small>
+        <small v-else-if="versionFileStatuses[index]?.error" class="file-status bad">
+          × {{ versionFileStatuses[index]?.error }}
+        </small>
       </div>
     </div>
 
@@ -314,7 +320,7 @@ watch([() => props.branch, () => props.initialConfig], async () => {
           v-model.trim="config.changelog.path"
           type="text"
           placeholder="CHANGELOG.md"
-          :disabled="busy"
+          :disabled="loading"
           @blur="validateChangelog"
         />
       </label>
@@ -330,7 +336,7 @@ watch([() => props.branch, () => props.initialConfig], async () => {
         <div v-if="!existingChangelogMarker" class="marker-position">
           <label>
             Insert marker before
-            <select v-model.number="changelogMarkerLine" :disabled="busy">
+            <select v-model.number="changelogMarkerLine" :disabled="loading">
               <option v-for="(line, index) in changelogLines" :key="index" :value="index + 1">
                 Line {{ index + 1 }} — {{ line.trim() || '(blank line)' }}
               </option>
@@ -341,14 +347,14 @@ watch([() => props.branch, () => props.initialConfig], async () => {
         <div class="marker-options">
           <label>
             Ordering
-            <select v-model="changelogOrder" :disabled="busy">
+            <select v-model="changelogOrder" :disabled="loading">
               <option value="newest-first">Newest first</option>
               <option value="newest-last">Newest last</option>
             </select>
           </label>
           <label>
             Version heading level
-            <select v-model.number="changelogHeading" :disabled="busy">
+            <select v-model.number="changelogHeading" :disabled="loading">
               <option v-for="level in 6" :key="level" :value="level">
                 {{ '#'.repeat(level) }} Heading {{ level }}
               </option>
@@ -365,7 +371,7 @@ watch([() => props.branch, () => props.initialConfig], async () => {
         <div class="advanced-content">
           <label>
             Tags to treat as releases
-            <select v-model="tagPatternPreset" :disabled="busy" @change="selectTagPattern">
+            <select v-model="tagPatternPreset" :disabled="loading" @change="selectTagPattern">
               <option value="starts-with-v">Starts with “v”</option>
               <option value="any">Any tag containing a version</option>
               <option value="custom">Custom regular expression</option>
@@ -373,7 +379,7 @@ watch([() => props.branch, () => props.initialConfig], async () => {
           </label>
           <label v-if="tagPatternPreset === 'custom'">
             Custom regular expression
-            <input v-model="config.tagPattern" type="text" :disabled="busy" />
+            <input v-model="config.tagPattern" type="text" :disabled="loading" />
           </label>
           <p class="hint">
             The expression uses a named <code>version</code> group. The default is
@@ -383,7 +389,7 @@ watch([() => props.branch, () => props.initialConfig], async () => {
       </details>
     </div>
 
-    <details class="changes-preview">
+    <details v-if="hasChanges" class="changes-preview">
       <summary>Preview changes</summary>
       <div v-for="preview in changePreviews" :key="preview.path" class="change-preview">
         <strong>{{ preview.path }}</strong>
@@ -397,12 +403,11 @@ watch([() => props.branch, () => props.initialConfig], async () => {
           </div>
         </div>
       </div>
-      <p v-if="changePreviews.length === 0" class="no-changes">No changes yet.</p>
     </details>
 
     <div class="save-row">
-      <p class="hint">This action creates a commit on <strong>{{ branch.name }}</strong>.</p>
-      <button type="button" :disabled="busy" @click="save">
+      <p v-if="hasChanges" class="hint">This action creates a commit on <strong>{{ branch.name }}</strong>.</p>
+      <button type="button" :disabled="loading || !hasChanges" @click="save">
         {{ initialConfig ? 'Commit settings update' : 'Create settings file' }}
       </button>
     </div>
@@ -428,15 +433,30 @@ input::placeholder { color: #718092; opacity: .42; }
 .tag-settings summary { cursor: pointer; color: #43566a; font-weight: 750; }
 .advanced-content { display: grid; gap: 14px; margin-top: 16px; }
 .hint { margin: 8px 0 0; color: #657081; font-size: .9rem; }
-.version-file { display: grid; grid-template-columns: 1fr 1.5fr auto; gap: 12px; align-items: end; margin-top: 16px; padding: 16px; border-radius: 10px; background: #f3f6f9; }
+.version-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) 30px;
+  grid-template-areas:
+    'path find remove'
+    '. status .';
+  column-gap: 12px;
+  row-gap: 7px;
+  align-items: end;
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 10px;
+  background: #f3f6f9;
+}
+.path-field { grid-area: path; }
+.find-field { grid-area: find; }
 .empty-row { margin-top: 16px; padding: 18px; color: #657081; border: 1px dashed #bdc7d2; border-radius: 10px; }
-.file-status { min-height: 1.2em; color: #657081; font-weight: 600; }
+.file-status { grid-area: status; min-height: 1.2em; color: #657081; font-weight: 600; }
 .file-status.good { color: #087747; background: none; }
 .file-status.bad { color: #a3421b; }
 button { padding: 10px 15px; color: #fff; font: inherit; font-weight: 750; border: 0; border-radius: 8px; background: #365f82; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .button-secondary { color: #365f82; background: #e9f0f6; }
-.remove { display: grid; width: 30px; height: 30px; padding: 0; place-items: center; color: #c43b37; border-radius: 50%; background: transparent; font-size: 1.6rem; font-weight: 400; line-height: 1; }
+.remove { grid-area: remove; align-self: end; display: grid; width: 30px; height: 30px; margin-bottom: 7px; padding: 0; place-items: center; color: #c43b37; border-radius: 50%; background: transparent; font-size: 1.6rem; font-weight: 400; line-height: 1; }
 .remove:hover { background: #ffe9e7; }
 .marker-status { display: inline-block; margin: 8px 0 0; color: #657081; font-size: .82rem; }
 .marker-status.good { padding: 0; color: #087747; background: none; }
@@ -460,8 +480,19 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .prefix { display: inline-block; width: 1.4em; user-select: none; }
 .no-changes { margin: 12px 0 0; color: #657081; font-size: .9rem; }
 .save-row { padding: 22px 32px; border-top: 1px solid #e9edf1; background: #f8fafc; }
+.save-row button { margin-left: auto; }
 .message { margin: 0 32px 22px; padding: 12px; border-radius: 8px; }
 .good { color: #087747; background: #e4f6ed; }
 .error { color: #a3421b; background: #fff0e9; }
-@media (max-width: 720px) { .settings-section, header { padding: 22px 18px; } .version-file { grid-template-columns: 1fr; } .section-heading, .save-row { align-items: stretch; flex-direction: column; } }
+@media (max-width: 720px) {
+  .settings-section, header { padding: 22px 18px; }
+  .version-file {
+    grid-template-columns: minmax(0, 1fr) 30px;
+    grid-template-areas:
+      'path remove'
+      'find find'
+      'status status';
+  }
+  .section-heading, .save-row { align-items: stretch; flex-direction: column; }
+}
 </style>

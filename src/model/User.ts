@@ -1,7 +1,5 @@
 import {
-    collection,
     doc,
-    type CollectionReference,
     type DocumentReference,
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
@@ -9,7 +7,6 @@ import { db, functions } from '@/firebase';
 import {Octokit, type RestEndpointMethodTypes} from '@octokit/rest';
 import Repo from './Repo';
 import { FirestoreDocumentObserver } from '@/util';
-import { RELEASE_CONFIG_PATHS } from './ReleaseConfig';
 
 type GithubRepository = RestEndpointMethodTypes['repos']['get']['response']['data'];
 
@@ -24,13 +21,9 @@ export default class User {
     octokit!: Octokit;
     userDocumentData!: UserDocument;
     userDocumentRef: DocumentReference<UserDocument>;
-    reposCollectionRef: CollectionReference<UserRepo>;
-
-    repoSummaries!: UserRepo[]
 
     constructor (readonly uid: string) {
         this.userDocumentRef = doc(db, 'users', this.uid) as DocumentReference<UserDocument>;
-        this.reposCollectionRef = collection(this.userDocumentRef, 'repos') as CollectionReference<UserRepo>;
     }
 
     /**
@@ -65,29 +58,8 @@ export default class User {
     get githubUsername() { return this.userDocumentData.githubUsername }
     get profileURL() { return this.userDocumentData.profileURL }
 
-    get githubRepos(): UserRepo[] {
-        return this.userDocumentData.githubRepos!.map(githubObj => ({
-            ownerUsername: githubObj.owner.login,
-            name: githubObj.name,
-            defaultBranchName: githubObj.default_branch,
-        }))
-    }
-
-    async repoHasDefaultBranchConfig(repo: UserRepo): Promise<boolean> {
-        for (const path of RELEASE_CONFIG_PATHS) {
-            try {
-                await this.octokit.rest.repos.getContent({
-                    owner: repo.ownerUsername,
-                    repo: repo.name,
-                    path,
-                    ref: repo.defaultBranchName,
-                });
-                return true;
-            } catch (error) {
-                if (!isNotFound(error)) throw error;
-            }
-        }
-        return false;
+    get githubRepos(): Repo[] {
+        return this.userDocumentData.githubRepos!.map(githubObj => new Repo(githubObj, this.octokit));
     }
 
     async getRepo(owner: string, name: string): Promise<Repo> {
@@ -97,14 +69,4 @@ export default class User {
         })
         return new Repo(response.data, this.octokit);
     }
-}
-
-export interface UserRepo {
-    ownerUsername: string,
-    name: string,
-    defaultBranchName: string,
-}
-
-function isNotFound(error: unknown): boolean {
-    return typeof error === 'object' && error !== null && 'status' in error && error.status === 404;
 }

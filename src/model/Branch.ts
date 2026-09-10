@@ -235,8 +235,8 @@ export default class Branch {
         return {
             path: config.changelog.path,
             marker,
-            beforeMarker: source.slice(Math.max(0, marker.index - 800), marker.index),
-            afterMarker: source.slice(marker.index + marker.length, marker.index + marker.length + 800),
+            beforeMarker: source.slice(0, marker.index),
+            afterMarker: source.slice(marker.index + marker.length),
         };
     }
 
@@ -296,8 +296,8 @@ export default class Branch {
             changelog: {
                 path: config.changelog.path,
                 marker,
-                beforeMarker: changelogSource.slice(Math.max(0, marker.index - 800), marker.index),
-                afterMarker: changelogSource.slice(marker.index + marker.length, marker.index + marker.length + 800),
+                beforeMarker: changelogSource.slice(0, marker.index),
+                afterMarker: changelogSource.slice(marker.index + marker.length),
             },
         };
     }
@@ -372,15 +372,12 @@ export default class Branch {
             await this.refresh();
             return response.data;
         } catch (error) {
-            await this.octokit.rest.git.updateRef({
-                owner: this.repo.ownerUsername,
-                repo: this.repo.name,
-                ref: `heads/${this.name}`,
-                sha: plan.baseSha,
-                force: true,
-            });
             await this.refresh();
-            throw error;
+            throw new Error(
+                `The branch was advanced, but GitHub could not create release ${plan.newTag}. ` +
+                'Humperdinck left the branch untouched to avoid overwriting concurrent work; inspect it on GitHub before retrying.',
+                { cause: error },
+            );
         }
     }
 

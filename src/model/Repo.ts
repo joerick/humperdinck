@@ -2,6 +2,7 @@ import { Octokit, type RestEndpointMethodTypes } from '@octokit/rest';
 import Branch from './Branch';
 import { asyncGeneratorToList } from '@/util';
 import { cacheMethod } from '@/util-cache';
+import { RELEASE_CONFIG_PATHS } from './ReleaseConfig';
 
 type GithubRepository = RestEndpointMethodTypes['repos']['get']['response']['data'];
 
@@ -22,6 +23,22 @@ export default class Repo {
     }
     async defaultBranch() {
         return await this.branch(this.defaultBranchName);
+    }
+    async hasDefaultBranchConfig(): Promise<boolean> {
+        for (const path of RELEASE_CONFIG_PATHS) {
+            try {
+                await this.octokit.rest.repos.getContent({
+                    owner: this.ownerUsername,
+                    repo: this.name,
+                    path,
+                    ref: this.defaultBranchName,
+                });
+                return true;
+            } catch (error) {
+                if (!isNotFound(error)) throw error;
+            }
+        }
+        return false;
     }
     @cacheMethod({ttl: 180})
     async branchNames() {
@@ -83,4 +100,8 @@ export default class Repo {
             page += 1;
         }
     }
+}
+
+function isNotFound(error: unknown): boolean {
+    return typeof error === 'object' && error !== null && 'status' in error && error.status === 404;
 }

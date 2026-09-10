@@ -83,3 +83,79 @@ export class FirestoreDocumentObserver<T = DocumentData> {
         this._dispose()
     }
 }
+
+export class CancellableTask {
+    signal: AbortSignal | undefined;
+
+    constructor(
+        runFunc: ((task: CancellableTask) => Promise<void>),
+        options: {signal?: AbortSignal} = {}
+    ) {
+        this.signal = options.signal
+        this.cancelPromise = new Promise<void>((resolve, reject) => {
+            this.cancelPromiseRejectCallback = reject
+        })
+
+        runFunc(this)
+            .catch((error: Error) => {
+                if (error.message == 'cancelled' || error.name == 'AbortError') {
+                    return
+                } else {
+                    console.error(error)
+                }
+            })
+            .finally(() => {
+                this._isFinished = true
+            })
+    }
+
+    isCancelled = false
+    _isFinished = false
+
+    cancel() {
+        if (!this._isFinished) {
+            this.isCancelled = true
+            this.cancelPromiseRejectCallback(new Error('cancelled'))
+        }
+    }
+
+    cancelPromise: Promise<void>
+    cancelPromiseRejectCallback!: (error: Error) => void
+
+    yield() {
+        this._throwIfCancelled()
+    }
+
+    async delay(millis: number) {
+        await Promise.race([
+            delay(millis),
+            this.cancelPromise,
+        ])
+        this._throwIfCancelled();
+    }
+
+    async nextAnimationFrame() {
+        await Promise.race([
+            new Promise(r => window.requestAnimationFrame(r)),
+            this.cancelPromise,
+        ])
+        this._throwIfCancelled();
+    }
+
+    async promise<T>(promise: Promise<T>): Promise<T> {
+        const result = await Promise.race([promise, this.cancelPromise])
+        this._throwIfCancelled();
+        return result as T;
+    }
+
+    _throwIfCancelled() {
+        if (this.isCancelled) {
+            throw new Error('cancelled');
+        }
+        this.signal?.throwIfAborted()
+    }
+}
+
+export async function delay(millis: number): Promise<void> {
+    return new Promise(r => window.setTimeout(r, millis))
+}

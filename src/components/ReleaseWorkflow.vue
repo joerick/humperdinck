@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
+import { computedAsync, useAsyncState } from '@vueuse/core';
 import type { Branch, Commit } from '@/model';
 import { nextVersion, type ReleaseConfig } from '@/model/ReleaseConfig';
 import type { ChangelogPreview, ReleasePlan, ReleaseTag } from '@/model/Branch';
@@ -19,13 +20,61 @@ type Increment = 'major' | 'minor' | 'patch' | 'custom';
 const increment = ref<Increment>('patch');
 const customVersion = ref('');
 const notes = ref('');
-const changelog = ref<ChangelogPreview | null>(null);
-const plan = ref<ReleasePlan | null>(null);
-const draftCommit = ref<Commit | null>(null);
 const publishConfirmed = ref(false);
 const publishedUrl = ref<string | null>(null);
-const busy = ref(false);
-const error = ref<string | null>(null);
+const draftCommit = ref<Commit | null>(null);
+const commandBusy = ref(false);
+const commandError = ref<string | null>(null);
+const changelogLoading = ref(false);
+const beforeLinesVisible = ref(10);
+const afterLinesVisible = ref(10);
+let releaseGeneration = 0;
+
+const changelogState = computedAsync(async () => {
+  try {
+    return { changelog: await props.branch.changelogPreview(props.config), error: null };
+  } catch (caught) {
+    return { changelog: null, error: messageFor(caught) };
+  }
+}, { changelog: null as ChangelogPreview | null, error: null as string | null }, {
+  evaluating: changelogLoading,
+});
+const changelog = computed(() => changelogState.value.changelog);
+const beforeMarkerLines = computed(() => changelog.value?.beforeMarker.split('\n') ?? []);
+const afterMarkerLines = computed(() => changelog.value?.afterMarker.split('\n') ?? []);
+const visibleBeforeMarker = computed(() => (
+  beforeMarkerLines.value.slice(-beforeLinesVisible.value).join('\n')
+));
+const visibleAfterMarker = computed(() => (
+  afterMarkerLines.value.slice(0, afterLinesVisible.value).join('\n')
+));
+const hasEarlierLines = computed(() => beforeLinesVisible.value < beforeMarkerLines.value.length);
+const hasLaterLines = computed(() => afterLinesVisible.value < afterMarkerLines.value.length);
+
+watch(changelog, () => {
+  beforeLinesVisible.value = 10;
+  afterLinesVisible.value = 10;
+});
+
+const {
+  state: plan,
+  execute: executePlan,
+  isLoading: planLoading,
+  error: planError,
+} = useAsyncState(
+  async (branch: Branch, config: ReleaseConfig, tag: string, releaseNotes: string, generation: number) => {
+    const result = await branch.planRelease(config, tag, releaseNotes);
+    return generation === releaseGeneration ? result : null;
+  },
+  null as ReleasePlan | null,
+  { immediate: false },
+);
+const busy = computed(() => (
+  changelogLoading.value || planLoading.value || commandBusy.value
+));
+const error = computed(() => (
+  commandError.value ?? changelogState.value.error ?? (planError.value ? messageFor(planError.value) : null)
+));
 
 const newVersion = computed(() => {
   if (increment.value === 'custom') return customVersion.value.trim();
@@ -37,57 +86,45 @@ const planIsValid = computed(() => (
   plan.value !== null && plan.value.files.every(file => file.versionFound !== false)
 ));
 
-async function load(): Promise<void> {
-  resetDraft();
-  notes.value = '';
-  error.value = null;
-  try {
-    changelog.value = await props.branch.changelogPreview(props.config);
-  } catch (caught) {
-    changelog.value = null;
-    error.value = messageFor(caught);
-  }
-}
-
 function resetDraft(): void {
+  releaseGeneration += 1;
   plan.value = null;
   draftCommit.value = null;
   publishConfirmed.value = false;
   publishedUrl.value = null;
 }
 
-async function previewRelease(): Promise<void> {
-  await run(async () => {
-    plan.value = await props.branch.planRelease(props.config, newVersion.value, notes.value);
-    draftCommit.value = null;
-    publishConfirmed.value = false;
-  });
+async function buildReleasePlan(): Promise<void> {
+  commandError.value = null;
+  const generation = releaseGeneration;
+  await executePlan(0, props.branch, props.config, newVersion.value, notes.value, generation);
+  draftCommit.value = null;
+  publishConfirmed.value = false;
 }
 
 async function createDraft(): Promise<void> {
   if (!plan.value) return;
-  await run(async () => {
-    draftCommit.value = await props.branch.createDraftCommit(plan.value!);
-  });
+  const generation = releaseGeneration;
+  const commit = await runCommand(() => props.branch.createDraftCommit(plan.value!));
+  if (commit && generation === releaseGeneration) draftCommit.value = commit;
 }
 
 async function publish(): Promise<void> {
   if (!plan.value || !draftCommit.value) return;
-  await run(async () => {
-    const release = await props.branch.publishRelease(plan.value!, draftCommit.value!);
-    publishedUrl.value = release.html_url;
-  });
+  const release = await runCommand(() => props.branch.publishRelease(plan.value!, draftCommit.value!));
+  if (release) publishedUrl.value = release.html_url;
 }
 
-async function run(action: () => Promise<void>): Promise<void> {
-  busy.value = true;
-  error.value = null;
+async function runCommand<T>(command: () => Promise<T>): Promise<T | undefined> {
+  if (commandBusy.value) throw new Error('Another release command is already running.');
+  commandBusy.value = true;
+  commandError.value = null;
   try {
-    await action();
+    return await command();
   } catch (caught) {
-    error.value = messageFor(caught);
+    commandError.value = messageFor(caught);
   } finally {
-    busy.value = false;
+    commandBusy.value = false;
   }
 }
 
@@ -99,11 +136,10 @@ function shortSha(sha: string): string {
   return sha.slice(0, 7);
 }
 
-watch(
-  [() => props.branch, () => props.config, () => props.currentRelease],
-  () => load().catch(console.error),
-  { immediate: true },
-);
+watch([() => props.branch, () => props.config, () => props.currentRelease], () => {
+  notes.value = '';
+  resetDraft();
+});
 watch([increment, customVersion, notes], resetDraft);
 </script>
 
@@ -145,7 +181,17 @@ watch([increment, customVersion, notes], resetDraft);
           This entry will be written to <code>{{ config.changelog.path }}</code> and used as the GitHub release description.
         </p>
         <div v-if="changelog" class="changelog-editor">
-          <pre>{{ changelog.beforeMarker }}</pre>
+          <div v-if="beforeMarkerLines.length" class="changelog-context">
+            <button
+              v-if="hasEarlierLines"
+              type="button"
+              class="show-context"
+              @click="beforeLinesVisible += 10"
+            >
+              Show 10 earlier lines
+            </button>
+            <pre>{{ visibleBeforeMarker }}</pre>
+          </div>
           <div v-if="changelog.marker.order === 'newest-first'" class="marker">{{ changelog.marker.source }}</div>
           <div class="editable-entry">
             <strong>{{ '#'.repeat(changelog.marker.heading) }} {{ newVersion }}</strong>
@@ -157,7 +203,17 @@ watch([increment, customVersion, notes], resetDraft);
             />
           </div>
           <div v-if="changelog.marker.order === 'newest-last'" class="marker">{{ changelog.marker.source }}</div>
-          <pre>{{ changelog.afterMarker }}</pre>
+          <div v-if="afterMarkerLines.length" class="changelog-context">
+            <pre>{{ visibleAfterMarker }}</pre>
+            <button
+              v-if="hasLaterLines"
+              type="button"
+              class="show-context"
+              @click="afterLinesVisible += 10"
+            >
+              Show 10 more lines
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -166,8 +222,8 @@ watch([increment, customVersion, notes], resetDraft);
       <div class="step-number">3</div>
       <div class="step-content">
         <h4>Preview repository changes</h4>
-        <button type="button" :disabled="!notes.trim() || !newVersion || busy" @click="previewRelease">
-          Build preview
+        <button type="button" :disabled="!notes.trim() || !newVersion || busy" @click="buildReleasePlan">
+          Build release plan
         </button>
         <ul v-if="plan" class="file-list">
           <li v-for="file in plan.files" :key="file.path">
@@ -244,7 +300,10 @@ header p:last-child { margin-bottom: 0; color: #dce8f3; }
 input[type='text'], textarea { width: 100%; padding: 11px 12px; color: #273444; font: inherit; border: 1px solid #b9c3ce; border-radius: 8px; resize: vertical; }
 input:focus, textarea:focus { outline: 3px solid rgb(55 132 190 / 20%); border-color: #3784be; }
 .changelog-editor { overflow: hidden; border: 1px solid #cdd5dd; border-radius: 10px; background: #f6f8fa; }
-.changelog-editor pre { max-height: 180px; overflow: auto; margin: 0; padding: 15px; color: #66717e; white-space: pre-wrap; }
+.changelog-editor pre { margin: 0; padding: 15px; color: #66717e; white-space: pre-wrap; }
+.changelog-context { display: grid; }
+.show-context { width: 100%; padding: 7px 15px; color: #4d657b; border-radius: 0; background: #e8eef3; font-size: .82rem; }
+.show-context:hover { background: #dde7ee; }
 .marker { padding: 8px 15px; color: #587087; font: .78rem ui-monospace, monospace; border-block: 1px dashed #bac7d2; background: #edf3f7; }
 .editable-entry { display: grid; gap: 10px; padding: 15px; background: #fff; }
 .editable-entry strong { font: 700 1rem ui-monospace, monospace; }
