@@ -3,14 +3,20 @@ import Branch from './Branch';
 import { asyncGeneratorToList } from '@/util';
 import { cacheMethod } from '@/util-cache';
 import { RELEASE_CONFIG_PATHS } from './ReleaseConfig';
+import type GitObjectCache from '@/cache/GitObjectCache';
 
 type GithubRepository = RestEndpointMethodTypes['repos']['get']['response']['data'];
 
 export default class Repo {
-    constructor (public githubObj: GithubRepository, readonly octokit: Octokit) {}
+    constructor (
+        public githubObj: GithubRepository,
+        readonly octokit: Octokit,
+        readonly gitObjects: GitObjectCache,
+    ) {}
 
     get ownerUsername() { return this.githubObj.owner.login }
     get name() { return this.githubObj.name }
+    get id() { return this.githubObj.id }
 
     get defaultBranchName() { return this.githubObj.default_branch }
     async branch(branchName: string) {
@@ -81,19 +87,22 @@ export default class Repo {
     async *commitsGenerator({headSha}: {headSha: string}) {
         let page = 1;
         while (true) {
-            const commitsRequest = await this.octokit.rest.repos.listCommits({
-                owner: this.ownerUsername,
-                repo: this.name,
-                sha: headSha,
-                per_page: 100,
-                page,
+            const commits = await this.gitObjects.commitPage(this.id, headSha, page, async () => {
+                const response = await this.octokit.rest.repos.listCommits({
+                    owner: this.ownerUsername,
+                    repo: this.name,
+                    sha: headSha,
+                    per_page: 100,
+                    page,
+                });
+                return response.data;
             });
 
-            for (const commit of commitsRequest.data) {
+            for (const commit of commits) {
                 yield commit;
             }
 
-            if (commitsRequest.data.length < 100) {
+            if (commits.length < 100) {
                 break;
             }
 

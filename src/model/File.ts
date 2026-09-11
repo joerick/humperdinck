@@ -1,7 +1,6 @@
 import {Octokit} from '@octokit/rest';
 import Repo from './Repo';
 import { Base64 } from '@/util';
-import { cacheMethod } from '@/util-cache';
 import { Commit } from '.';
 
 export interface GithubTreeEntry {
@@ -33,30 +32,31 @@ export default class File {
         return pathComponents[pathComponents.length - 1];
     }
     
-    @cacheMethod({ttl: 60})
     async contents() {
         if (this.isADirectory) { throw new Error('directories have no contents') }
 
-        const response = await this.octokit.rest.git.getBlob({
-            owner: this.repo.ownerUsername,
-            repo: this.repo.name,
-            file_sha: this.sha
-        })
-
-        return Base64.decode(response.data.content);
+        return this.repo.gitObjects.blob(this.repo.id, this.sha, async () => {
+            const response = await this.octokit.rest.git.getBlob({
+                owner: this.repo.ownerUsername,
+                repo: this.repo.name,
+                file_sha: this.sha
+            })
+            return Base64.decode(response.data.content);
+        });
     }
 
-    @cacheMethod({ttl: 60})
     async files(): Promise<File[]> {
         if (!this.isADirectory) { throw new Error('only directories have files in them') }
 
-        const response = await this.octokit.rest.git.getTree({
-            owner: this.repo.ownerUsername,
-            repo: this.repo.name,
-            tree_sha: this.sha,
-        })
-
-        return response.data.tree.map((gho: any) => new File(gho, this.repo, this.octokit));
+        const entries = await this.repo.gitObjects.tree<GithubTreeEntry[]>(this.repo.id, this.sha, async () => {
+            const response = await this.octokit.rest.git.getTree({
+                owner: this.repo.ownerUsername,
+                repo: this.repo.name,
+                tree_sha: this.sha,
+            })
+            return response.data.tree as GithubTreeEntry[];
+        });
+        return entries.map(entry => new File(entry, this.repo, this.octokit));
     }
 
     async getFile(path: string): Promise<File> {

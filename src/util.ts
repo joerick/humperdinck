@@ -43,8 +43,8 @@ export async function asyncGeneratorToList<T>(generator: AsyncIterableIterator<T
 }
 
 export class FirestoreDocumentObserver<T = DocumentData> {
-    private waitingValueCallbacks: ((data: T|undefined, error?: FirestoreError|Error) => void)[] = []
-    private _dispose: Unsubscribe
+    _waitingValueCallbacks: ((data: T|undefined, error?: FirestoreError|Error) => void)[] = []
+    _dispose: Unsubscribe
 
     constructor(readonly reference: DocumentReference<T>,
                 readonly onUpdate: (documentData: T|undefined) => void) {
@@ -52,19 +52,19 @@ export class FirestoreDocumentObserver<T = DocumentData> {
             next: snapshot => {
                 const data = snapshot.data()
                 onUpdate(data)
-                this.waitingValueCallbacks.forEach(callback => callback(data))
-                this.waitingValueCallbacks = []
+                this._waitingValueCallbacks.forEach(callback => callback(data))
+                this._waitingValueCallbacks = []
             },
             error: error => {
-                this.waitingValueCallbacks.forEach(callback => callback(undefined, error))
-                this.waitingValueCallbacks = []
+                this._waitingValueCallbacks.forEach(callback => callback(undefined, error))
+                this._waitingValueCallbacks = []
             },
         })
     }
 
     nextValue(): Promise<T|undefined> {
         return new Promise((resolve, reject) => {
-            this.waitingValueCallbacks.push((data, error) => {
+            this._waitingValueCallbacks.push((data, error) => {
                 if (error) {
                     reject(error)
                 } else {
@@ -77,8 +77,8 @@ export class FirestoreDocumentObserver<T = DocumentData> {
     dispose() {
         const waitingError = new Error('Observer was disposed before it got a value')
 
-        this.waitingValueCallbacks.forEach(callback => callback(undefined, waitingError))
-        this.waitingValueCallbacks = []
+        this._waitingValueCallbacks.forEach(callback => callback(undefined, waitingError))
+        this._waitingValueCallbacks = []
 
         this._dispose()
     }

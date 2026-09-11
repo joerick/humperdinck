@@ -7,6 +7,7 @@ import { db, functions } from '@/firebase';
 import {Octokit, type RestEndpointMethodTypes} from '@octokit/rest';
 import Repo from './Repo';
 import { FirestoreDocumentObserver } from '@/util';
+import GitObjectCache from '@/cache/GitObjectCache';
 
 type GithubRepository = RestEndpointMethodTypes['repos']['get']['response']['data'];
 
@@ -21,9 +22,11 @@ export default class User {
     octokit!: Octokit;
     userDocumentData!: UserDocument;
     userDocumentRef: DocumentReference<UserDocument>;
+    readonly gitObjects: GitObjectCache;
 
     constructor (readonly uid: string) {
         this.userDocumentRef = doc(db, 'users', this.uid) as DocumentReference<UserDocument>;
+        this.gitObjects = new GitObjectCache(uid);
     }
 
     /**
@@ -59,7 +62,7 @@ export default class User {
     get profileURL() { return this.userDocumentData.profileURL }
 
     get githubRepos(): Repo[] {
-        return this.userDocumentData.githubRepos!.map(githubObj => new Repo(githubObj, this.octokit));
+        return this.userDocumentData.githubRepos!.map(githubObj => new Repo(githubObj, this.octokit, this.gitObjects));
     }
 
     async getRepo(owner: string, name: string): Promise<Repo> {
@@ -67,6 +70,6 @@ export default class User {
             owner: owner,
             repo: name,
         })
-        return new Repo(response.data, this.octokit);
+        return new Repo(response.data, this.octokit, this.gitObjects);
     }
 }
