@@ -92,13 +92,27 @@ export default class Branch {
         return this.githubObj.name;
     }
 
-    async refresh() {
+    async refresh(expectedHeadSha?: string) {
+        const previousHeadSha = this.headCommit.sha;
         const response = await this.octokit.rest.repos.getBranch({
             owner: this.repo.ownerUsername,
             repo: this.repo.name,
             branch: this.name,
         });
         this.githubObj = response.data;
+        if (
+            expectedHeadSha !== undefined
+            && expectedHeadSha !== previousHeadSha
+            && this.headCommit.sha === previousHeadSha
+        ) {
+            console.warn('GitHub branch head did not move after updating its ref', {
+                repository: `${this.repo.ownerUsername}/${this.repo.name}`,
+                branch: this.name,
+                previousHeadSha,
+                expectedHeadSha,
+                observedHeadSha: this.headCommit.sha,
+            });
+        }
     }
 
     async loadReleaseConfig(): Promise<ReleaseConfig | null> {
@@ -156,7 +170,7 @@ export default class Branch {
             ref: `heads/${this.name}`,
             sha: commit.data.sha,
         });
-        await this.refresh();
+        await this.refresh(commit.data.sha);
     }
 
     async latestRelease(config: ReleaseConfig): Promise<ReleaseTag> {
@@ -193,12 +207,19 @@ export default class Branch {
         const timeline: ReleaseTimelineItem[] = [];
         for (const commit of commits) {
             const summary = summarizeCommit(commit);
-            const response = await this.octokit.rest.repos.listPullRequestsAssociatedWithCommit({
-                owner: this.repo.ownerUsername,
-                repo: this.repo.name,
-                commit_sha: commit.sha,
-            });
-            const pullRequest = response.data.find(pr => pr.merged_at !== null);
+            const associatedPullRequests = await this.repo.gitObjects.associatedPullRequests(
+                this.repo.id,
+                commit.sha,
+                async () => {
+                    const response = await this.octokit.rest.repos.listPullRequestsAssociatedWithCommit({
+                        owner: this.repo.ownerUsername,
+                        repo: this.repo.name,
+                        commit_sha: commit.sha,
+                    });
+                    return response.data;
+                },
+            );
+            const pullRequest = associatedPullRequests.find(pr => pr.merged_at !== null);
             if (!pullRequest) {
                 standaloneCommits.push(summary);
                 timeline.push({ kind: 'commit', commit: summary });

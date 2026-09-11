@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { computedAsync } from '@vueuse/core';
 import { useRoute, useRouter } from 'vue-router';
 import { type Repo, type User, type Branch } from '../model';
@@ -11,6 +11,12 @@ import ReleaseWorkflow from '@/components/ReleaseWorkflow.vue';
 import RepoSettings from '@/components/RepoSettings.vue';
 import RepoNav from '@/components/RepoNav.vue';
 import AccountMenu from '@/components/AccountMenu.vue';
+import { CancellableTask } from '@/util';
+import {
+  INITIAL_CHECK_POLL_DELAY,
+  checkSummariesEqual,
+  nextCheckPollDelay,
+} from '@/check-polling';
 
 const props = defineProps<{
   user?: User | null;
@@ -75,7 +81,7 @@ const branch = computed(() => page.value.branch);
 const branchNames = computed(() => page.value.branchNames);
 const config = computed(() => page.value.config);
 const changes = computed(() => page.value.changes);
-const checks = computed(() => page.value.checks);
+const checks = ref<CheckStatusSummary | null>(null);
 const error = computed(() => page.value.error);
 const loadingMessage = computed(() => {
   if (props.user === undefined) return 'Loading account…';
@@ -91,6 +97,37 @@ const checkLabel = computed(() => {
   return passing;
 });
 const headCommitUrl = computed(() => branch.value?.githubObj.commit.html_url);
+
+watch(
+  [branch, () => page.value.checks, isLoading],
+  ([selectedBranch, initialChecks, loading], _, onCleanup) => {
+    checks.value = initialChecks;
+    if (!selectedBranch || !initialChecks || loading || isSettings.value) return;
+
+    const pollTask = new CancellableTask(async task => {
+      let previous = initialChecks;
+      let delay = INITIAL_CHECK_POLL_DELAY;
+
+      while (true) {
+        await task.delay(delay);
+        try {
+          const refreshed = await task.promise(selectedBranch.headCommit.getCheckStatus());
+          const changed = !checkSummariesEqual(previous, refreshed);
+          checks.value = refreshed;
+          previous = refreshed;
+          delay = nextCheckPollDelay(delay, changed);
+        } catch (caught) {
+          task.yield();
+          console.warn('Could not refresh check status', caught);
+          delay = nextCheckPollDelay(delay, false);
+        }
+      }
+    });
+
+    onCleanup(() => pollTask.cancel());
+  },
+  { immediate: true },
+);
 
 function routeFor(name: 'repo-branch' | 'repo-settings', selectedBranch = branch.value?.name) {
   return {

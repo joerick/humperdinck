@@ -25,4 +25,8 @@ export default class GitObjectCache {
   commitPage<T>(repoId: number, headSha: string, page: number, load: () => Promise<T>): Promise<T> {
     return this._cache.getOrLoad(`repo:${repoId}:commits:${headSha}:page:${page}`, load);
   }
+
+  associatedPullRequests<T>(repoId: number, commitSha: string, load: () => Promise<T>): Promise<T> {
+    return this._cache.getOrLoad(`repo:${repoId}:commit:${commitSha}:pull-requests`, load);
+  }
 }
