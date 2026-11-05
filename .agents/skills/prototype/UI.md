@@ -91,11 +91,22 @@ Behaviour:
 
 Put the switcher in a single shared component so both sub-shapes can reuse it. Locate it wherever shared UI lives in the project.
 
-### 5. Hand it over
+### 5. Verify the visuals
+
+Inspect every variant in the browser before handoff, including after revisions:
+
+- Show it within the populated host page, with representative content density. If live data is unavailable, use clearly identified fixture data in the real layout.
+- Check typography, icons, spacing, and alignment against the surrounding app so unfinished styling does not obscure the design choice.
+- Exercise the controls being compared, including open menus and both short and long labels. Check clipping, overlap, truncation, and popup placement.
+- Inspect desktop and narrow layouts, plus widths immediately above and below each breakpoint affecting the changed UI. Check that controls retain their intended grouping and alignment through the transition.
+
+Finish when every variant has been inspected in these states and visible defects that interfere with comparison are fixed. If browser verification is blocked, state what remains unverified at handoff.
+
+### 6. Hand it over
 
 Surface the URL (and the `?variant=` keys). The user will flip through whenever they get to it. The interesting feedback is usually **"I want the header from B with the sidebar from C"**, which is the actual design they want.
 
-### 6. Capture the answer and clean up
+### 7. Capture the answer and clean up
 
 Once a variant has won, capture the answer (which variant and why), then capture the prototype the way the [SKILL](SKILL.md) describes. Fold the winner into the real code and move the rest onto the throwaway branch, not into main:
 
@@ -109,4 +120,4 @@ The full set of variants is the primary source, so it lands on the throwaway bra
 - **Variants that differ only in colour or copy.** That's a tweak, not a prototype. Real variants disagree about structure.
 - **Sharing too much code between variants.** A shared `<Header>` is fine; a shared `<Layout>` defeats the point. Each variant should be free to throw out the layout.
 - **Wiring variants to real mutations.** Read-only prototypes are fine. If a variant needs to mutate, point it at a stub: the question is "what should this look like", not "does the backend work".
-- **Promoting the prototype directly to production.** The variant code was written under prototype constraints (no tests, minimal error handling). Rewrite it properly when you fold it in.
+- **Promoting the prototype directly to production.** The variant code was written under prototype constraints (no tests or error handling). Rewrite it properly when you fold it in.
