@@ -13,3 +13,20 @@
 - Use an underscore prefix for implementation details instead, for example `_cache`, `_loadManifest()`, or `_waitingCallbacks`.
 - Vue may wrap class instances in proxies. Native private fields require the original instance as `this`, while reactive reads and writes to internal state can accidentally become dependencies.
 - Mark mutable synchronization primitives such as maps, mutexes, and task registries with `markRaw()` when they must not participate in Vue reactivity.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in local Markdown under `.scratch/`. Read
+`docs/agents/issue-tracker.md` before working with tickets.
+
+### Triage labels
+
+Use the five default triage roles as local issue statuses. Read
+`docs/agents/triage-labels.md` before triaging tickets.
+
+### Domain docs
+
+Use a single-context layout. Read `docs/agents/domain.md` before
+exploring the codebase.
