@@ -56,6 +56,25 @@ The frontend currently uses Firebase project `humperdinck-a7b3e`. Authentication
 Firestore, and callable Functions therefore use that project unless emulator or
 environment configuration is added.
 
+### Local UI fixture
+
+Run `npm run dev:fixture` and open
+<http://localhost:5174/example/humperdinck/branches/main> to browse the real
+screens with a sample signed-in account, repositories, branches, release changes,
+and settings. No GitHub account is needed. `new-project` and the `unconfigured`
+branch show the setup state; long repository and branch names exercise truncation.
+
+The **Local UI fixture** panel controls successful/failed writes, write delay,
+and discard confirmation. The native dialog is the default; automatic allow/cancel
+options are available for browser automation. To inspect saving and error states,
+edit Settings, choose a write outcome and delay, then commit the settings.
+Settings, drafts, and releases use in-memory fixture data; reload resets it.
+Refresh/close warnings still use the browser's native unsaved-settings warning.
+
+Fixture mode uses a separate port and a fixture account ID for browser caches.
+Its auth replacement is enabled only by the Vite dev server in `fixture` mode;
+production builds use normal authentication and exclude the fixture controls.
+
 ## Verify
 
 ```sh
