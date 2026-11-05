@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref, useTemplateRef, watch } from 'vue';
+import { computed, onScopeDispose, ref, useTemplateRef, watch } from 'vue';
+import { useSettingsNavigation } from '@/settings-navigation';
 import { computedAsync, useAsyncState } from '@vueuse/core';
 import MarkerPositionDialog from '@/components/MarkerPositionDialog.vue';
 import type { Branch } from '@/model';
@@ -130,6 +131,19 @@ const changePreviews = computed(() => {
   return previews;
 });
 const hasChanges = computed(() => changePreviews.value.length > 0);
+// Generated file differences can exist even before the user edits anything.
+const editSnapshot = computed(() => JSON.stringify({
+  yaml: yamlPreview.value,
+  markerLine: changelogMarkerLine.value,
+  order: changelogOrder.value,
+  heading: changelogHeading.value,
+}));
+const savedSnapshot = ref('');
+const navigation = useSettingsNavigation();
+onScopeDispose(navigation.register({
+  get dirty() { return editSnapshot.value !== savedSnapshot.value; },
+  get saving() { return busy.value; },
+}));
 
 function reset(): void {
   config.value = props.initialConfig
@@ -147,6 +161,7 @@ function reset(): void {
   changelogOrder.value = 'newest-first';
   changelogHeading.value = 2;
   configPath.value = RELEASE_CONFIG_PATH;
+  savedSnapshot.value = editSnapshot.value;
 }
 
 function selectTagPattern(): void {
@@ -237,6 +252,8 @@ async function save(): Promise<void> {
         branch: props.branch.name,
       },
     }));
+    savedSnapshot.value = editSnapshot.value;
+    busy.value = false;
     emit('saved', validated);
   });
 }
@@ -264,6 +281,7 @@ watch(loadedSettings, loaded => {
   configPath.value = loaded.path;
   error.value = loaded.error;
   if (loaded.source !== null) applyChangelogSource(loaded.source);
+  savedSnapshot.value = editSnapshot.value;
 }, { immediate: true });
 </script>
 

@@ -9,8 +9,6 @@ import type { ReleaseConfig } from '@/model/ReleaseConfig';
 import ReleaseChanges from '@/components/ReleaseChanges.vue';
 import ReleaseWorkflow from '@/components/ReleaseWorkflow.vue';
 import RepoSettings from '@/components/RepoSettings.vue';
-import RepoNav from '@/components/RepoNav.vue';
-import AccountMenu from '@/components/AccountMenu.vue';
 import { CancellableTask } from '@/util';
 import {
   INITIAL_CHECK_POLL_DELAY,
@@ -27,7 +25,6 @@ const router = useRouter();
 interface RepoPageState {
   repo: Repo | null;
   branch: Branch | null;
-  branchNames: string[];
   config: ReleaseConfig | null;
   changes: ReleaseChangesModel | null;
   checks: CheckStatusSummary | null;
@@ -37,7 +34,6 @@ interface RepoPageState {
 const EMPTY_PAGE: RepoPageState = {
   repo: null,
   branch: null,
-  branchNames: [],
   config: null,
   changes: null,
   checks: null,
@@ -60,15 +56,14 @@ const page = computedAsync(async () => {
   try {
     const loadedRepo = await user.getRepo(owner, repoName);
     const loadedBranch = await loadedRepo.branch(branchName);
-    const [branchNames, config, checks] = await Promise.all([
-      loadedRepo.branchNames(),
+    const [config, checks] = await Promise.all([
       loadedBranch.loadReleaseConfig(),
       loadedBranch.headCommit.getCheckStatus(),
     ]);
     const changes = config && !settingsRoute
       ? await loadedBranch.changesSinceLatestRelease(config)
       : null;
-    return { repo: loadedRepo, branch: loadedBranch, branchNames, config, changes, checks, error: null };
+    return { repo: loadedRepo, branch: loadedBranch, config, changes, checks, error: null };
   } catch (caught) {
     return {
       ...EMPTY_PAGE,
@@ -78,7 +73,6 @@ const page = computedAsync(async () => {
 }, EMPTY_PAGE, { evaluating: isLoading });
 const repo = computed(() => page.value.repo);
 const branch = computed(() => page.value.branch);
-const branchNames = computed(() => page.value.branchNames);
 const config = computed(() => page.value.config);
 const changes = computed(() => page.value.changes);
 const checks = ref<CheckStatusSummary | null>(null);
@@ -140,11 +134,6 @@ function routeFor(name: 'repo-branch' | 'repo-settings', selectedBranch = branch
   };
 }
 
-function selectBranch(event: Event): void {
-  const selectedBranch = (event.target as HTMLSelectElement).value;
-  router.push(routeFor(isSettings.value ? 'repo-settings' : 'repo-branch', selectedBranch));
-}
-
 function settingsSaved(): void {
   router.push(routeFor('repo-branch'));
 }
@@ -165,20 +154,6 @@ function reloadRepo(): void {
         <p v-else>{{ loadingMessage }}</p>
       </div>
       <main v-else class="repo-content">
-        <div class="repo-summary">
-          <div>
-            <p class="eyebrow">Repository</p>
-            <RepoNav :user="user" />
-          </div>
-          <div class="branch-control">
-            <label for="branch">Release branch</label>
-            <select id="branch" :value="branch.name" @change="selectBranch">
-              <option v-for="name in branchNames" :key="name" :value="name">{{ name }}</option>
-            </select>
-          </div>
-          <AccountMenu :user="user" />
-        </div>
-
         <nav class="repo-tabs" aria-label="Repository sections">
           <router-link :to="routeFor('repo-branch')">Release</router-link>
           <router-link :to="routeFor('repo-settings')">Settings</router-link>
@@ -231,12 +206,7 @@ function reloadRepo(): void {
 <style scoped>
 .repo-content { min-height: 100vh; padding: 30px; background: #f5f7fa; }
 .loading-state { padding: 50px 24px; color: #657081; }
-.repo-summary { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 22px; max-width: 850px; margin: 0 auto; text-align: left; }
-.repo-summary :deep(.repo-picker) { margin-top: 3px; }
 .eyebrow { margin: 0; color: #657081; font-size: .72rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-.branch-control { display: grid; gap: 5px; }
-.branch-control label { color: #657081; font-size: .72rem; font-weight: 800; text-transform: uppercase; }
-select { min-width: 160px; padding: 8px 32px 8px 10px; color: #273444; border: 1px solid #b9c3ce; border-radius: 8px; background: #fff; font: inherit; }
 .checks-card { display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 13px; max-width: 850px; margin: 30px auto 0; padding: 15px 18px; text-align: left; border: 1px solid #d7dce2; border-radius: 12px; background: #fff; }
 .checks-icon { display: grid; width: 34px; height: 34px; place-items: center; color: #596675; border-radius: 50%; background: #edf1f4; }
 .checks-icon svg { width: 17px; fill: currentColor; }
@@ -247,7 +217,7 @@ select { min-width: 160px; padding: 8px 32px 8px 10px; color: #273444; border: 1
 .checks-failure .checks-icon { color: #fff; background: #c14c24; }
 .checks-failure strong { color: #a3421b; }
 .checks-pending .checks-icon { color: #7a5c00; background: #fff2c4; }
-.repo-tabs { display: flex; gap: 6px; max-width: 850px; margin: 24px auto 0; border-bottom: 1px solid #ccd4dc; }
+.repo-tabs { display: flex; gap: 6px; max-width: 850px; margin: 0 auto; border-bottom: 1px solid #ccd4dc; }
 .repo-tabs a { padding: 10px 15px; color: #536577; text-decoration: none; border-bottom: 3px solid transparent; }
 .repo-tabs a.router-link-active { color: #245f8d; border-bottom-color: #245f8d; font-weight: 750; }
 .setup-prompt { max-width: 650px; margin: 60px auto; padding: 40px; text-align: left; border: 1px solid #d7dce2; border-radius: 16px; background: #fff; box-shadow: 0 12px 32px rgb(24 39 75 / 8%); }
@@ -255,5 +225,5 @@ select { min-width: 160px; padding: 8px 32px 8px 10px; color: #273444; border: 1
 .setup-prompt p:not(.eyebrow) { color: #657081; line-height: 1.55; }
 .primary-link { display: inline-block; margin-top: 10px; padding: 11px 16px; color: #fff; border-radius: 8px; background: #365f82; font-weight: 750; text-decoration: none; }
 .page-error { max-width: 850px; margin: 24px auto; padding: 14px; color: #a3421b; border-radius: 8px; background: #fff0e9; }
-@media (max-width: 760px) { .repo-content { padding: 22px 12px; } .repo-summary { grid-template-columns: 1fr auto; align-items: flex-start; } .repo-summary > div:first-child { grid-column: 1 / -1; } .checks-card { grid-template-columns: 34px 1fr; } .checks-card > a { grid-column: 2; margin-left: 0; } }
+@media (max-width: 760px) { .repo-content { padding: 22px 12px; } .checks-card { grid-template-columns: 34px 1fr; } .checks-card > a { grid-column: 2; margin-left: 0; } }
 </style>

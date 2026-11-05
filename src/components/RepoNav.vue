@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, useTemplateRef, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, useTemplateRef, watch } from 'vue';
 import { Semaphore } from 'async-mutex';
 import { useRoute, useRouter } from 'vue-router';
 import type { Repo, User } from '../model';
 import { CancellableTask } from '@/util';
+import HeaderIcon from './HeaderIcon.vue';
 
 const props = defineProps<{
   user?: User | null;
+  disabled?: boolean;
 }>();
 
 interface ConfigurationCache {
@@ -21,6 +23,14 @@ const route = useRoute();
 const router = useRouter();
 const picker = useTemplateRef('picker');
 const search = ref('');
+const searchInput = useTemplateRef('searchInput');
+const navigationError = ref('');
+async function opened(): Promise<void> {
+  if (!picker.value?.open) return;
+  navigationError.value = '';
+  await nextTick();
+  searchInput.value?.focus();
+}
 const showAll = ref(false);
 const configuration = reactive(new Map<string, boolean>());
 const lastUsed = reactive(new Map<string, number>());
@@ -72,14 +82,25 @@ const scanLabel = computed(() => {
   return `${configured} configured · ${time}`;
 });
 
-function selectRepo(selected: Repo): void {
-  recordLastUsed(selected);
-  picker.value?.removeAttribute('open');
-  router.push({
-    name: 'repo',
-    params: { owner: selected.ownerUsername, repoName: selected.name },
-  });
+async function selectRepo(selected: Repo): Promise<void> {
+  if (props.disabled) return;
+  navigationError.value = '';
+  try {
+    const failure = await router.push({
+      name: 'repo-branch',
+      params: { owner: selected.ownerUsername, repoName: selected.name, branch: selected.defaultBranchName },
+    });
+    if (!failure) picker.value?.removeAttribute('open');
+  } catch (error) {
+    navigationError.value = error instanceof Error ? error.message : String(error);
+  }
 }
+
+watch(() => route.fullPath, () => picker.value?.removeAttribute('open'));
+
+watch(() => props.disabled, disabled => {
+  if (disabled) picker.value?.removeAttribute('open');
+});
 
 function scanRepositories(user: User, reset = false): void {
   scanTask?.cancel();
@@ -238,13 +259,10 @@ watch([() => props.user, selectedRepoKey], ([user, key]) => {
 <template>
   <div v-if="user === undefined" class="state">Loading repositories…</div>
   <div v-else-if="user === null" class="state">Log in to see repositories.</div>
-  <details v-else ref="picker" class="repo-picker">
-    <summary aria-label="Choose repository">
-      <svg class="repo-icon" viewBox="0 0 16 16" aria-hidden="true">
-        <path d="M2 2.75C2 1.78 2.78 1 3.75 1h8.5c.97 0 1.75.78 1.75 1.75v10.5c0 .97-.78 1.75-1.75 1.75h-8.5A1.75 1.75 0 0 1 2 13.25ZM3.75 2.5a.25.25 0 0 0-.25.25v10.5c0 .14.11.25.25.25H5v-11Zm2.75 11h5.75c.14 0 .25-.11.25-.25V2.75a.25.25 0 0 0-.25-.25H6.5Z" />
-      </svg>
-      <span>{{ selectedRepoKey || 'Choose a repository' }}</span>
-      <svg class="chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.22 6.22 3.25 3.25a.75.75 0 0 0 1.06 0l3.25-3.25a.75.75 0 0 0-1.06-1.06L8 7.88 5.28 5.16a.75.75 0 1 0-1.06 1.06Z" /></svg>
+  <details v-else ref="picker" class="repo-picker" @toggle="opened">
+    <summary aria-label="Choose repository" :title="selectedRepoKey || 'Choose repository'" :aria-disabled="disabled" @click="disabled && $event.preventDefault()">
+      <HeaderIcon name="repo" class="repo-icon" />
+      <span v-if="selectedRepoKey" class="repo-name"><span class="owner">{{ route.params.owner }}<span class="slash">/</span></span><strong>{{ route.params.repoName }}</strong></span>
     </summary>
     <div class="popover">
       <div class="popover-heading">
@@ -256,24 +274,28 @@ watch([() => props.user, selectedRepoKey], ([user, key]) => {
           </button>
         </div>
       </div>
-      <input v-model="search" type="search" placeholder="Filter repositories…" aria-label="Filter repositories" />
+      <label class="search"><HeaderIcon name="search" /><input ref="searchInput" v-model="search" type="search" placeholder="Find a repository…" aria-label="Find a repository" /></label>
       <div class="list-heading">
         <span>{{ showingAll ? 'All repositories' : 'Configured repositories' }}</span>
         <small>{{ showingAll ? 'Alphabetical' : 'Recently used' }}</small>
       </div>
-      <div class="repo-results" role="listbox" aria-label="Repositories">
+      <div class="repo-results" role="group" aria-label="Repositories">
         <button
           v-for="repo in visibleRepos"
           :key="repoKey(repo)"
           type="button"
           :class="{ selected: repoKey(repo) === selectedRepoKey }"
+          :disabled="disabled"
           @click="selectRepo(repo)"
         >
-          <span>{{ repo.ownerUsername }}/<strong>{{ repo.name }}</strong></span>
+          <HeaderIcon name="repo" class="option-icon" />
+          <span class="option-text"><strong>{{ repo.name }}</strong><small>{{ repo.ownerUsername }}</small></span>
           <span v-if="configuration.get(repoKey(repo)) === true" class="configured">Configured</span>
+          <HeaderIcon v-if="repoKey(repo) === selectedRepoKey" name="check" class="check" />
         </button>
         <p v-if="visibleRepos.length === 0" class="empty">No matching repositories.</p>
       </div>
+      <p v-if="navigationError" class="navigation-error" role="alert">{{ navigationError }}</p>
       <div class="list-footer">
         <small class="result-count">{{ visibleRepos.length }} shown</small>
         <button
@@ -289,32 +311,50 @@ watch([() => props.user, selectedRepoKey], ([user, key]) => {
   </details>
 </template>
 
-<style lang="scss" scoped>
-.repo-picker { position: relative; width: fit-content; max-width: min(100%, 620px); }
-summary { display: flex; align-items: center; gap: 9px; min-width: 0; color: #273444; cursor: pointer; font-size: 1.5rem; font-weight: 750; list-style: none; }
-summary::-webkit-details-marker { display: none; }
-summary span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.repo-icon { flex: 0 0 auto; width: .8em; fill: currentColor; }
-.chevron { flex: 0 0 auto; width: .7em; fill: #718092; transition: transform .15s ease; }
-[open] .chevron { transform: rotate(180deg); }
-.popover { position: absolute; z-index: 20; top: calc(100% + 10px); left: 0; display: grid; gap: 10px; width: min(520px, calc(100vw - 40px)); padding: 16px; border: 1px solid #cfd6de; border-radius: 12px; background: #fff; box-shadow: 0 16px 45px rgb(24 39 75 / 20%); }
-.popover-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.popover-heading small, .result-count { color: #718092; font-size: .75rem; }
-.scan-status { display: flex; align-items: center; gap: 9px; }
-.refresh { padding: 4px 8px; color: #365f82; border: 0; border-radius: 6px; background: #e9f0f6; cursor: pointer; font: inherit; font-size: .75rem; font-weight: 750; }
-.refresh:disabled { cursor: wait; opacity: .55; }
-input, select { min-width: 0; width: 100%; height: 39px; padding: 8px 10px; color: #273444; border: 1px solid #b9c3ce; border-radius: 8px; background: #fff; font: inherit; }
-input:focus, select:focus { outline: 3px solid rgb(55 132 190 / 18%); border-color: #3784be; }
-.list-heading, .list-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.list-heading { color: #536577; font-size: .78rem; font-weight: 750; }
-.list-heading small { color: #8a96a3; font-weight: 500; }
-.repo-results { max-height: min(390px, 55vh); overflow-y: auto; border: 1px solid #e1e6eb; border-radius: 8px; }
-.repo-results button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; color: #34485b; border: 0; border-top: 1px solid #edf0f3; background: #fff; cursor: pointer; text-align: left; }
-.repo-results button:first-child { border-top: 0; }
-.repo-results button:hover, .repo-results button.selected { background: #edf4fa; }
-.configured { color: #087747; font-size: .72rem; font-weight: 750; }
-.more { padding: 3px 0; color: #365f82; border: 0; background: transparent; cursor: pointer; font: inherit; font-size: .8rem; font-weight: 750; }
-.empty { margin: 0; padding: 18px; color: #718092; text-align: center; }
-.state { color: #657081; }
-@media (max-width: 560px) { summary { font-size: 1.25rem; } .popover { left: -4px; } }
+<style scoped>
+.repo-picker { position:relative; width:fit-content; min-width:0; max-width:min(100%,620px); flex:0 1 auto; }
+summary { display:flex; align-items:center; gap:8px; min-width:0; min-height:36px; padding:0 8px; border-radius:6px; color:#283444; cursor:pointer; font-size:14px; line-height:20px; list-style:none; }
+summary::-webkit-details-marker { display:none; }
+summary:hover,[open]>summary { background:#edf2f7; }
+summary:focus-visible { outline:2px solid #3764ce; outline-offset:3px; }
+summary[aria-disabled="true"] { opacity:.55; cursor:wait; }
+.repo-name { display:flex; min-width:0; align-items:baseline; white-space:nowrap; }
+.repo-name strong { overflow:hidden; text-overflow:ellipsis; font-weight:650; }
+.owner { color:#687484; }
+.slash { padding:0 5px; color:#a2acb8; }
+.repo-icon { color:#6b7888; }
+.popover { position:absolute; z-index:50; top:calc(100% + 10px); left:0; display:grid; gap:10px; width:min(440px,calc(100vw - 260px)); padding:14px 12px 10px; border:1px solid #d6dee7; border-radius:10px; background:#fff; box-shadow:0 16px 40px #22334a24,0 3px 8px #22334a0a; }
+.popover-heading { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:0 4px; color:#29394c; font-size:13px; }
+.popover-heading small,.result-count { color:#8390a0; font-size:10px; }
+.scan-status { display:flex; align-items:center; gap:8px; }
+.refresh { padding:4px 6px; color:#5f7697; border:0; border-radius:4px; background:#f0f3f7; cursor:pointer; font:inherit; font-size:10px; }
+.refresh:disabled { cursor:wait; opacity:.55; }
+.search { display:flex; align-items:center; gap:8px; padding:0 10px; border:1px solid #d7dfe8; border-radius:6px; background:#fafbfd; color:#8491a0; }
+.search:focus-within { border-color:#6488c4; box-shadow:0 0 0 2px #3764ce15; }
+.search .header-icon { width:16px; height:16px; flex-basis:16px; }
+input { width:100%; min-width:0; padding:9px 0; border:0; outline:0; background:transparent; color:#29394c; font:inherit; font-size:12px; }
+input::placeholder { color:#8a96a5; }
+.list-heading,.list-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 4px; }
+.list-heading { color:#7b899b; font-size:10px; font-weight:600; }
+.list-heading small { color:#96a1af; font-size:10px; font-weight:400; }
+.repo-results { max-height:min(390px,55vh); overflow-y:auto; display:grid; gap:2px; margin:0 -6px; }
+.repo-results button { display:flex; width:100%; align-items:center; gap:10px; padding:10px; color:#34445a; border:0; border-radius:6px; background:#fff; cursor:pointer; text-align:left; font:inherit; font-size:13px; }
+.repo-results button:hover { background:#f2f5f9; }
+.repo-results button.selected { background:#f0f5fc; }
+.option-icon { color:#8591a0; }
+.option-text { flex:1; min-width:0; overflow-wrap:anywhere; }
+.option-text strong { font-weight:500; }
+.option-text small { display:block; margin-top:3px; color:#8390a0; font-size:11px; }
+.check { color:#3764ce; }
+.configured { color:#648772; font-size:10px; }
+.more { padding:3px 0; color:#5f7697; border:0; background:transparent; cursor:pointer; font:inherit; font-size:11px; }
+.empty { margin:0; padding:18px; color:#8390a0; font-size:12px; text-align:center; }
+.state { color:#657081; }
+.navigation-error { margin:0; color:#a3421b; font-size:12px; }
+@media(max-width:720px) {
+ .repo-picker { position:static; }
+ summary { padding:0 5px; gap:5px; font-size:13px; }
+ .owner { display:none; }
+ .popover { top:calc(100% - 1px); left:12px; width:calc(100vw - 24px); }
+}
 </style>

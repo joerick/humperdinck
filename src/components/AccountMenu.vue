@@ -1,5 +1,15 @@
 <script setup lang="ts">
 import { Auth, type User } from '@/model';
+import { useTemplateRef, watch } from 'vue';
+import { useRoute } from 'vue-router';
+import { useSettingsNavigation } from '@/settings-navigation';
+
+const navigation = useSettingsNavigation();
+const { saving } = navigation;
+const menu = useTemplateRef('menu');
+const route = useRoute();
+watch(() => route.fullPath, () => menu.value?.removeAttribute('open'));
+watch(saving, () => menu.value?.removeAttribute('open'));
 
 defineProps<{
   user?: User | null;
@@ -10,12 +20,13 @@ function login(): void {
 }
 
 function logout(): void {
-  Auth.logout().catch(console.error);
+  if (!navigation.canLeave()) return;
+  Auth.logout().then(() => menu.value?.removeAttribute('open')).catch(console.error);
 }
 </script>
 
 <template>
-  <details class="account-menu">
+  <details ref="menu" class="account-menu">
     <summary aria-label="Account menu">
       <img v-if="user?.profileURL" :src="user.profileURL" :alt="user.githubUsername" />
       <svg v-else viewBox="0 0 24 24" aria-hidden="true">
@@ -28,7 +39,7 @@ function logout(): void {
       <router-link to="/">Home</router-link>
       <router-link to="/about">About</router-link>
       <button v-if="user === null" type="button" @click="login">Log in with GitHub</button>
-      <button v-else-if="user" type="button" @click="logout">Log out</button>
+      <button v-else-if="user" type="button" :disabled="saving" @click="logout">Log out</button>
     </nav>
   </details>
 </template>
